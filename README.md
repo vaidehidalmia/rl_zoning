@@ -1,2 +1,30 @@
-# rl_zoning
-Reinforcement learning agent for object placement in zones
+# Zoning Environment - Reinforcement Learning
+A custom reinforcement learning environment where an agent learns to place objects in their correct zones using PPO (Proximal Policy Optimization).
+
+## 🎯 Task Description
+The agent operates on a 6x6 grid and must:
+- Place red objects in red zone (left half of grid)
+- Place blue objects in blue zone (right half of grid)
+
+**Actions Available:**
+- 0-3: Movement (Up, Down, Left, Right)
+- 4: Pickup object at current position
+- 5: Drop carried object at current position
+
+## 🚀 Quick Start
+1. Install Dependencies - pip install gymnasium stable-baselines3 matplotlib numpy
+2. Train the Agent - python train.py
+3. Evaluate Performance - python evaluate.py
+    (shows a visualization for each step, cancel the visual window to see the next step)
+
+## 🎨 Visualization
+The environment renders with:
+- Pink background: Red zone (left half)
+- Light blue background: Blue zone (right half)
+- "R": Red objects
+- "B": Blue objects
+- "A": Agent (alone)
+- "AR"/"AB": Agent carrying object
+
+
+
