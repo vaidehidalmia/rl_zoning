@@ -1,6 +1,7 @@
 import gymnasium as gym
 import numpy as np
 from visualize.renderer import ZoningRenderer
+from rewards import RewardConfig
 
 class ZoningEnv(gym.Env):
     """
@@ -10,7 +11,7 @@ class ZoningEnv(gym.Env):
     disturbing objects that are already correctly placed.
     """
 
-    def __init__(self, grid_size=6, num_objects=2, render_mode=None):
+    def __init__(self, grid_size=4, num_objects=2, render_mode=None):
         """
         Initialize the Zoning Environment
 
@@ -21,6 +22,7 @@ class ZoningEnv(gym.Env):
         super().__init__()
         self.grid_size = grid_size
         self.num_objects = num_objects
+        self.rewards = RewardConfig()
 
         # Episode management
         self.max_steps = self.grid_size * self.grid_size * 10
@@ -85,7 +87,7 @@ class ZoningEnv(gym.Env):
         self.terminated = False
         self.truncated = False
 
-        # Random agent starting position
+        # Random agent position
         self.agent_pos = (
             np.random.randint(self.grid_size),
             np.random.randint(self.grid_size)
@@ -93,43 +95,39 @@ class ZoningEnv(gym.Env):
         self.carried_object = -1
         self.objects.clear()
 
-        # Place objects randomly, ensuring no overlaps
-        all_positions = {(i, j) for i in range(self.grid_size) for j in range(self.grid_size)}
-        free_positions = list(all_positions - {self.agent_pos})
+        # Get free positions
+        free_positions = [(r, c) for r in range(self.grid_size) 
+                        for c in range(self.grid_size) 
+                        if (r, c) != self.agent_pos]
+        
+        # Shuffle for random placement
         np.random.shuffle(free_positions)
-        num_to_place = min(self.num_objects, len(free_positions))
-
-        for i in range(num_to_place):
+        
+        # Place objects in wrong zones
+        for i in range(min(self.num_objects, len(free_positions))):
             pos = free_positions[i]
-            obj_type = np.random.choice(list(self.object_types.keys()))
+            r, c = pos
+            
+            # Simple rule: left half gets blue (wrong), right half gets red (wrong)
+            obj_type = 2 if c < self.grid_size // 2 else 1
             self.objects[pos] = obj_type
 
         return self.get_obs(), {}
 
     def step(self, action):
-        """
-        Execute one environment step
-
-        Args:
-            action (int): Action to take (0-5)
-
-        Returns:
-            observation: New state observation
-            reward: Reward for this step
-            terminated: Whether episode is complete
-            truncated: Whether episode was truncated
-            info: Additional information (empty)
-        """
+        """Enhanced step with object-seeking rewards"""
         self.current_step += 1
         reward = 0
-
-        # Get current position
+        
+        # Store previous position for distance calculations
+        prev_pos = self.agent_pos
         r, c = self.agent_pos
-
-        # Compute distance before taking action (for reward shaping)
+        
+        # Compute distances before action
         prev_distance = self.get_distance_to_target_zone()
+        prev_object_distance = self.get_distance_to_nearest_object()
 
-        # Movement actions (0-3)
+        # Movement actions (0-3) - SAME AS BEFORE
         if action == 0 and r > 0:  # Up
             self.agent_pos = (r - 1, c)
         elif action == 1 and r < self.grid_size - 1:  # Down
@@ -139,70 +137,77 @@ class ZoningEnv(gym.Env):
         elif action == 3 and c < self.grid_size - 1:  # Right
             self.agent_pos = (r, c + 1)
 
-        # Pickup action (4)
+        # Pickup action (4) - SAME AS BEFORE
         elif action == 4:
             if self.carried_object == -1 and self.agent_pos in self.objects:
+                reward += 10.0
                 obj_at_pos = self.objects[self.agent_pos]
-
-                # Check if object is already correctly placed
                 if self.is_correct_zone(self.agent_pos, obj_at_pos):
-                    # Penalty for disturbing correctly placed objects
-                    reward = -5
+                    reward = self.rewards.PICKUP_CORRECT_OBJECT
                     self.carried_object = self.objects.pop(self.agent_pos)
                 else:
-                    # Good reward for picking up misplaced objects
                     self.carried_object = self.objects.pop(self.agent_pos)
-                    reward = 3
+                    reward = self.rewards.PICKUP_GOOD_OBJECT
             else:
-                # Penalty for invalid pickup
-                reward = -0.1
+                reward = self.rewards.PICKUP_INVALID
 
-        # Drop action (5)
+        # Drop action (5) - SAME AS BEFORE
         elif action == 5:
             if self.carried_object != -1:
-                # Check if position is free
                 if self.agent_pos not in self.objects:
-                    # Place the object
                     self.objects[self.agent_pos] = self.carried_object
-
-                    # Large reward/penalty based on correctness
                     if self.is_correct_zone(self.agent_pos, self.carried_object):
-                        reward = 5  # Large reward for correct placement
+                        reward = self.rewards.DROP_CORRECT_ZONE
                     else:
-                        reward = -3  # Penalty for incorrect placement
-
+                        reward = self.rewards.DROP_WRONG_ZONE
                     self.carried_object = -1
                 else:
-                    # Penalty for trying to drop on occupied position
-                    reward = -1
+                    reward = self.rewards.DROP_INVALID
             else:
-                # Penalty for trying to drop when not carrying
-                reward = -1
-
-        # Invalid action (e.g. wall bump)
+                reward = self.rewards.DROP_INVALID
         else:
-            reward = -1.0
+            reward = self.rewards.MOVEMENT_INVALID
 
-        # Compute distance after action
+        # === NEW: OBJECT-SEEKING REWARD ===
+        if self.carried_object == -1 and self.objects:  # Not carrying, objects exist
+            new_object_distance = self.get_distance_to_nearest_object()
+            if prev_object_distance is not None and new_object_distance is not None:
+                if new_object_distance < prev_object_distance:  # Got closer to an object
+                    reward += 2
+                elif new_object_distance > prev_object_distance:  # Got farther
+                    reward -= 2
+
+        # # Existing distance shaping (for when carrying object)
         new_distance = self.get_distance_to_target_zone()
-
-        # Positive shaping reward for moving closer to target zone
         if prev_distance is not None and new_distance is not None:
             distance_delta = prev_distance - new_distance
-            reward += max(0.0, distance_delta * 0.5)
+            reward += max(0.0, distance_delta * self.rewards.DISTANCE_SHAPING_SCALE)
 
-        # Step penalty to encourage efficiency
-        reward -= 0.005
-
-        # Check termination and truncation conditions
+        # Step penalty and completion
+        reward += self.rewards.STEP_PENALTY
         self.terminated = self.is_episode_complete()
         self.truncated = self.current_step >= self.max_steps
 
-        # Big reward bonus for completing the task
         if self.terminated and not self.truncated:
-            reward += 100
+            reward += self.rewards.COMPLETION_BONUS
 
         return self.get_obs(), reward, self.terminated, self.truncated, {}
+
+
+    # Add this helper method to your ZoningEnv class:
+    def get_distance_to_nearest_object(self):
+        """Calculate Manhattan distance to nearest object"""
+        if not self.objects:
+            return None
+            
+        min_dist = float("inf")
+        ar, ac = self.agent_pos
+        
+        for (r, c) in self.objects.keys():
+            dist = abs(r - ar) + abs(c - ac)
+            min_dist = min(min_dist, dist)
+        
+        return min_dist if min_dist != float("inf") else None
 
     def is_episode_complete(self):
         """

@@ -31,7 +31,7 @@ for step in range(100):
     obs, reward, terminated, truncated, _ = env.step(action)
     total_reward += reward
 
-    action_int = int(action)  # Fix: convert from ndarray
+    action_int = int(action) 
     action_name = ACTION_MEANINGS.get(action_int, "Unknown")
     print(f"Step {step + 1} | Action: {action_int} ({action_name}) | Reward: {reward:.2f}")
     time.sleep(0.25)
