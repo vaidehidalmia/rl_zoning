@@ -6,10 +6,12 @@ from config import GRID_SIZE, NUM_OBJECTS, MODEL_PATH
 print(f"📦 Loading model from: {MODEL_PATH}")
 model = PPO.load(MODEL_PATH)
 
-# Create environment 
+# Create environment
 env = ZoningEnv(grid_size=GRID_SIZE, num_objects=NUM_OBJECTS, render_mode=None)
 
-print(f"\n🎮 Evaluating agent on {GRID_SIZE}x{GRID_SIZE} grid with {NUM_OBJECTS} object(s)")
+print(
+    f"\n🎮 Evaluating agent on {GRID_SIZE}x{GRID_SIZE} grid with {NUM_OBJECTS} object(s)"
+)
 print("=" * 60)
 
 # Statistics tracking
@@ -23,9 +25,9 @@ episode_lengths = []
 for episode in range(total_episodes):
     obs, _ = env.reset()
     total_reward = 0
-    
+
     for step in range(400):  # Max 200 steps per episode
-        action, _ = model.predict(obs, deterministic=False) 
+        action, _ = model.predict(obs, deterministic=False)
         obs, reward, terminated, truncated, _ = env.step(action)
         total_reward += reward
 
@@ -33,25 +35,34 @@ for episode in range(total_episodes):
             episode_lengths.append(step + 1)
             episode_rewards.append(total_reward)
             total_steps += step + 1
-            
+
             if terminated:
                 successful_episodes += 1
-                print(f"Episode {episode + 1:2d}: ✅ COMPLETED in {step + 1:3d} steps (reward: {total_reward:6.1f})")
+                print(
+                    f"Episode {episode + 1:2d}: ✅ COMPLETED in {step + 1:3d} steps (reward: {total_reward:6.1f})"
+                )
             else:
-                print(f"Episode {episode + 1:2d}: ❌ TIMEOUT  in {step + 1:3d} steps (reward: {total_reward:6.1f})")
+                print(
+                    f"Episode {episode + 1:2d}: ❌ TIMEOUT  in {step + 1:3d} steps (reward: {total_reward:6.1f})"
+                )
             break
 
 print("\n" + "=" * 60)
 print("📊 EVALUATION SUMMARY:")
-print(f"Success Rate:     {successful_episodes}/{total_episodes} ({100*successful_episodes/total_episodes:.1f}%)")
-print(f"Average Steps:    {sum(episode_lengths)/len(episode_lengths):.1f}")
-print(f"Average Reward:   {sum(episode_rewards)/len(episode_rewards):.1f}")
+print(
+    f"Success Rate:     {successful_episodes}/{total_episodes} ({100 * successful_episodes / total_episodes:.1f}%)"
+)
+print(f"Average Steps:    {sum(episode_lengths) / len(episode_lengths):.1f}")
+print(f"Average Reward:   {sum(episode_rewards) / len(episode_rewards):.1f}")
 
 if successful_episodes > 0:
-    successful_lengths = [length for i, length in enumerate(episode_lengths) 
-                         if episode_rewards[i] > 50]  # Successful episodes
+    successful_lengths = [
+        length for i, length in enumerate(episode_lengths) if episode_rewards[i] > 50
+    ]  # Successful episodes
     if successful_lengths:
-        print(f"Avg Steps (Success): {sum(successful_lengths)/len(successful_lengths):.1f}")
+        print(
+            f"Avg Steps (Success): {sum(successful_lengths) / len(successful_lengths):.1f}"
+        )
 
 print(f"Best Episode:     {min(episode_lengths)} steps")
 print(f"Worst Episode:    {max(episode_lengths)} steps")
@@ -81,13 +92,15 @@ for step in range(10):
     action, _ = model.predict(obs, deterministic=False)
     actions.append(int(action))
     obs, reward, terminated, truncated, _ = env.step(action)
-    
+
     action_name = action_names.get(int(action), "?")
-    
-    print(f"Step {step+1}: {action_name} → Agent: {env.agent_pos}, Carrying: {env.carried_object}")
-    
+
+    print(
+        f"Step {step + 1}: {action_name} → Agent: {env.agent_pos}, Carrying: {env.carried_object}"
+    )
+
     if terminated or truncated:
-        print(f"Episode ended early at step {step+1}")
+        print(f"Episode ended early at step {step + 1}")
         break
 
 print(f"\n🎯 Agent behavior looks {'GOOD' if len(set(actions)) > 2 else 'REPETITIVE'}")

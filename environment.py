@@ -3,19 +3,17 @@ import numpy as np
 from visualize.renderer import ZoningRenderer
 from potential_shaping import PotentialShaping
 
+
 class RobustRewards:
-    
     # ONLY positive reward: completing the task
     TASK_COMPLETE = 100.0
-    
-    # Small negative rewards for efficiency
-    STEP_COST = -0.1           # Encourage efficiency
-    INVALID_ACTION = -1.0      # Discourage invalid actions
 
+    # Small negative rewards for efficiency
+    STEP_COST = -0.1  # Encourage efficiency
+    INVALID_ACTION = -1.0  # Discourage invalid actions
 
 
 class ZoningEnv(gym.Env):
-
     def __init__(self, grid_size=4, num_objects=1, render_mode=None, use_shaping=True):
         super().__init__()
         self.grid_size = grid_size
@@ -23,14 +21,14 @@ class ZoningEnv(gym.Env):
         self.rewards = RobustRewards()
         self.use_shaping = use_shaping
 
-        # Episode management  
+        # Episode management
         self.max_steps = 200
         self.current_step = 0
 
         # Object types and zones
         self.zone_types = {
-            1: lambda r, c: c < self.grid_size // 2,    # Red zone (left)
-            2: lambda r, c: c >= self.grid_size // 2,   # Blue zone (right)
+            1: lambda r, c: c < self.grid_size // 2,  # Red zone (left)
+            2: lambda r, c: c >= self.grid_size // 2,  # Blue zone (right)
         }
 
         # Agent state
@@ -49,9 +47,7 @@ class ZoningEnv(gym.Env):
         # Action and observation spaces
         self.action_space = gym.spaces.Discrete(6)
         self.observation_space = gym.spaces.Box(
-            low=0, high=12,
-            shape=(self.grid_size, self.grid_size, 3),
-            dtype=np.int32
+            low=0, high=12, shape=(self.grid_size, self.grid_size, 3), dtype=np.int32
         )
 
     def reset(self, seed=None, options=None):
@@ -59,16 +55,22 @@ class ZoningEnv(gym.Env):
         self.current_step = 0
 
         # Reset agent state
-        self.agent_pos = (np.random.randint(self.grid_size), np.random.randint(self.grid_size))
+        self.agent_pos = (
+            np.random.randint(self.grid_size),
+            np.random.randint(self.grid_size),
+        )
         self.carried_object = -1
         self.objects.clear()
 
         # Place objects in wrong zones
-        free_positions = [(r, c) for r in range(self.grid_size) 
-                         for c in range(self.grid_size) 
-                         if (r, c) != self.agent_pos]
+        free_positions = [
+            (r, c)
+            for r in range(self.grid_size)
+            for c in range(self.grid_size)
+            if (r, c) != self.agent_pos
+        ]
         np.random.shuffle(free_positions)
-        
+
         for i in range(min(self.num_objects, len(free_positions))):
             pos = free_positions[i]
             r, c = pos
@@ -77,17 +79,19 @@ class ZoningEnv(gym.Env):
 
         # Reset shaping
         if self.use_shaping:
-            self.shaping.reset(self.agent_pos, self.carried_object, self.objects, self.grid_size)
+            self.shaping.reset(
+                self.agent_pos, self.carried_object, self.objects, self.grid_size
+            )
 
         return self.get_obs(), {}
 
     def step(self, action):
         self.current_step += 1
-        reward = self.rewards.STEP_COST 
-        
+        reward = self.rewards.STEP_COST
+
         r, c = self.agent_pos
 
-        # Movement actions (0-3) 
+        # Movement actions (0-3)
         if action == 0 and r > 0:
             self.agent_pos = (r - 1, c)
         elif action == 1 and r < self.grid_size - 1:
@@ -104,7 +108,7 @@ class ZoningEnv(gym.Env):
             else:
                 reward += self.rewards.INVALID_ACTION
 
-        # Drop action (5) 
+        # Drop action (5)
         elif action == 5:
             if self.carried_object != -1 and self.agent_pos not in self.objects:
                 self.objects[self.agent_pos] = self.carried_object
@@ -139,10 +143,10 @@ class ZoningEnv(gym.Env):
         """Task complete when all objects correctly placed AND not carrying"""
         if self.carried_object != -1:
             return False
-            
+
         if not self.objects:  # No objects left
             return False
-            
+
         return all(self.is_correct_zone(pos, obj) for pos, obj in self.objects.items())
 
     def get_obs(self):
