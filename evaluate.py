@@ -24,7 +24,7 @@ for episode in range(total_episodes):
     obs, _ = env.reset()
     total_reward = 0
     
-    for step in range(200):  # Max 200 steps per episode
+    for step in range(400):  # Max 200 steps per episode
         action, _ = model.predict(obs, deterministic=False) 
         obs, reward, terminated, truncated, _ = env.step(action)
         total_reward += reward

@@ -2,12 +2,13 @@
 # Achieved: 100% success rate, 9-12 step optimal performance
 
 # Environment Configuration
-GRID_SIZE = 4           # Perfect size for learning fundamentals
+GRID_SIZE = 8           # Perfect size for learning fundamentals
 NUM_OBJECTS = 1         # Master single object first
 
 # Training Configuration  
 TOTAL_TIMESTEPS = 200_000    # Sufficient for robust learning
-MODEL_PATH = "models/zoning_agent"
+# MODEL_PATH = "models/zoning_agent"
+MODEL_PATH = "models/grid_8x8_best/best_model"
 
 # PPO Settings (these exact values achieved 100% success)
 N_ENVS = 4              # Parallel environments for stable learning
