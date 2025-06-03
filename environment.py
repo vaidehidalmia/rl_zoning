@@ -1,6 +1,7 @@
 import gymnasium as gym
 import numpy as np
 from visualize.renderer import ZoningRenderer
+from potential_shaping import PotentialShaping
 
 class RobustRewards:
     
@@ -10,16 +11,17 @@ class RobustRewards:
     # Small negative rewards for efficiency
     STEP_COST = -0.1           # Encourage efficiency
     INVALID_ACTION = -1.0      # Discourage invalid actions
-    
+
 
 
 class ZoningEnv(gym.Env):
 
-    def __init__(self, grid_size=4, num_objects=1, render_mode=None):
+    def __init__(self, grid_size=4, num_objects=1, render_mode=None, use_shaping=True):
         super().__init__()
         self.grid_size = grid_size
         self.num_objects = num_objects
         self.rewards = RobustRewards()
+        self.use_shaping = use_shaping
 
         # Episode management  
         self.max_steps = 200
@@ -35,6 +37,10 @@ class ZoningEnv(gym.Env):
         self.agent_pos = (0, 0)
         self.carried_object = -1
         self.objects = {}
+
+        # Potential-based shaping
+        if self.use_shaping:
+            self.shaping = PotentialShaping()
 
         # Rendering
         self.render_mode = render_mode
@@ -68,6 +74,10 @@ class ZoningEnv(gym.Env):
             r, c = pos
             obj_type = 2 if c < self.grid_size // 2 else 1  # Wrong zone
             self.objects[pos] = obj_type
+
+        # Reset shaping
+        if self.use_shaping:
+            self.shaping.reset(self.agent_pos, self.carried_object, self.objects, self.grid_size)
 
         return self.get_obs(), {}
 
@@ -103,6 +113,13 @@ class ZoningEnv(gym.Env):
                 reward += self.rewards.INVALID_ACTION
         else:
             reward += self.rewards.INVALID_ACTION
+
+        # Add potential-based shaping reward
+        if self.use_shaping:
+            shaping_reward = self.shaping.get_shaping_reward(
+                self.agent_pos, self.carried_object, self.objects, self.grid_size
+            )
+            reward += shaping_reward
 
         # Check completion
         terminated = self.is_episode_complete()

@@ -114,7 +114,9 @@ def train_grid_curriculum():
         (5, 250_000, 250),   # Learn 5x5
         (6, 300_000, 300),   # Learn 6x6  
         (7, 350_000, 350),   # Learn 7x7
-        (8, 400_000, 400),   # Master 8x8
+        (8, 400_000, 400),   # Learn 8x8
+        (9, 450_000, 450),   # Learn 9x9
+        (10, 500_000, 500),   # Master 10x10
     ]
     
     results = {}
