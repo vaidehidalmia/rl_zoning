@@ -10,12 +10,14 @@ Key improvements:
 - Support for much larger grids (up to 12x12+)
 """
 
-import os
-import numpy as np
-from stable_baselines3 import PPO
-from stable_baselines3.common.env_util import make_vec_env
-from stable_baselines3.common.callbacks import EvalCallback
 from environment import ZoningEnv
+from stable_baselines3 import PPO
+from stable_baselines3.common.callbacks import EvalCallback
+from stable_baselines3.common.env_util import make_vec_env
+from stable_baselines3.common.vec_env import SubprocVecEnv
+
+import numpy as np
+import os
 
 
 def calculate_training_params(grid_size, num_objects):
@@ -87,7 +89,11 @@ def train_stage(stage, grid_size, num_objects):
 
     # Use more environments for larger grids
     n_envs = min(8, max(2, 16 // grid_size))  # Scale down envs for larger grids
-    env = make_vec_env(make_env, n_envs=n_envs)
+    env = make_vec_env(
+        make_env,
+        n_envs=n_envs,
+        vec_env_cls=SubprocVecEnv,
+    )
 
     print(
         f"🆕 Creating new model for {grid_size}x{grid_size} with {num_objects} objects"
@@ -106,7 +112,7 @@ def train_stage(stage, grid_size, num_objects):
         n_steps=max(512, 4096 // grid_size),  # Adaptive rollout length
         ent_coef=ent_coef,
         policy_kwargs=dict(net_arch=net_arch),
-        device="cuda" if os.environ.get("CUDA_AVAILABLE") else "cpu",
+        device="cpu",
     )
 
     # Setup evaluation
