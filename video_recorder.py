@@ -4,7 +4,7 @@ from PIL import Image
 import imageio
 from stable_baselines3 import PPO
 from environment import ZoningEnv
-from config import GRID_SIZE, NUM_OBJECTS, MODEL_PATH
+from config import GRID_SIZE, NUM_OBJECTS, MAX_STEPS, MODEL_PATH
 
 # Fix matplotlib backend for video recording
 import matplotlib
@@ -229,10 +229,15 @@ def create_video_of_agent(
 
     # Find and load trained model
     print(f"📦 Loading model from: {model_path}")
-    model = PPO.load(model_path)
+    model = PPO.load(model_path, device="cpu")
 
     # Create environment with FIXED renderer
-    env = ZoningEnv(grid_size=GRID_SIZE, num_objects=NUM_OBJECTS, render_mode=None)
+    env = ZoningEnv(
+        grid_size=GRID_SIZE,
+        num_objects=NUM_OBJECTS,
+        max_steps=MAX_STEPS,
+        render_mode=None,
+    )
     env.renderer = VideoZoningRenderer(GRID_SIZE)  # Replace with working renderer
 
     for episode in range(num_episodes):
@@ -294,8 +299,13 @@ def create_side_by_side_comparison(model_path):
     """Create a comparison showing multiple episodes side by side"""
 
     print("🎬 Creating side-by-side comparison...")
-    model = PPO.load(model_path)
-    env = ZoningEnv(grid_size=GRID_SIZE, num_objects=NUM_OBJECTS, render_mode=None)
+    model = PPO.load(model_path, device="cpu")
+    env = ZoningEnv(
+        grid_size=GRID_SIZE,
+        num_objects=NUM_OBJECTS,
+        max_steps=MAX_STEPS,
+        render_mode=None,
+    )
     env.renderer = VideoZoningRenderer(GRID_SIZE)  # Use fixed renderer
 
     all_episode_frames = []
@@ -356,8 +366,13 @@ def create_best_episode_video(model_path):
     """Record until we get a really good episode (under 15 steps)"""
 
     print("🎯 Recording best performance episode...")
-    model = PPO.load(model_path)
-    env = ZoningEnv(grid_size=GRID_SIZE, num_objects=NUM_OBJECTS, render_mode=None)
+    model = PPO.load(model_path, device="cpu")
+    env = ZoningEnv(
+        grid_size=GRID_SIZE,
+        num_objects=NUM_OBJECTS,
+        max_steps=MAX_STEPS,
+        render_mode=None,
+    )
     env.renderer = VideoZoningRenderer(GRID_SIZE)  # Use fixed renderer
 
     episode = 0
@@ -407,7 +422,7 @@ if __name__ == "__main__":
         print(f"Config MODEL_PATH: {MODEL_PATH}")
 
         # Try exact same loading as evaluate.py
-        test_model = PPO.load(MODEL_PATH)
+        test_model = PPO.load(MODEL_PATH, device="cpu")
         print("✅ Model loads successfully with CONFIG path!")
         model_path = MODEL_PATH
     except Exception as e:
@@ -417,7 +432,7 @@ if __name__ == "__main__":
             print("❌ Could not find any model file!")
             exit(1)
         try:
-            test_model = PPO.load(model_path)
+            test_model = PPO.load(model_path, device="cpu")
             print(f"✅ Model loads successfully with: {model_path}")
         except Exception as e2:
             print(f"❌ Model loading failed: {e2}")

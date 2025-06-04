@@ -7,6 +7,7 @@ from potential_shaping import PotentialShaping
 class RobustRewards:
     # ONLY positive reward: completing the task
     TASK_COMPLETE = 100.0
+    CORRECT_PLACEMENT = 0  # Reward for placing object in correct zone for first time
 
     # Small negative rewards for efficiency
     STEP_COST = -0.1  # Encourage efficiency
@@ -14,7 +15,14 @@ class RobustRewards:
 
 
 class ZoningEnv(gym.Env):
-    def __init__(self, grid_size=4, num_objects=1, render_mode=None, use_shaping=True):
+    def __init__(
+        self,
+        grid_size=4,
+        num_objects=1,
+        max_steps=200,
+        render_mode=None,
+        use_shaping=True,
+    ):
         super().__init__()
         self.grid_size = grid_size
         self.num_objects = num_objects
@@ -22,7 +30,7 @@ class ZoningEnv(gym.Env):
         self.use_shaping = use_shaping
 
         # Episode management
-        self.max_steps = 200
+        self.max_steps = max_steps
         self.current_step = 0
 
         # Object types and zones
@@ -35,6 +43,13 @@ class ZoningEnv(gym.Env):
         self.agent_pos = (0, 0)
         self.carried_object = -1
         self.objects = {}
+
+        # Track which objects have been correctly placed
+        self.correctly_placed_objects = (
+            set()
+        )  # Track object IDs that have been correctly placed
+        self.object_id_counter = 0  # Assign unique IDs to objects
+        self.object_ids = {}  # Map positions to object IDs
 
         # Potential-based shaping
         if self.use_shaping:
@@ -60,7 +75,11 @@ class ZoningEnv(gym.Env):
             np.random.randint(self.grid_size),
         )
         self.carried_object = -1
+        self.carried_object_id = -1  # Track ID of carried object
         self.objects.clear()
+        self.correctly_placed_objects.clear()
+        self.object_id_counter = 0
+        self.object_ids.clear()
 
         # Place objects in wrong zones
         free_positions = [
@@ -76,6 +95,8 @@ class ZoningEnv(gym.Env):
             r, c = pos
             obj_type = 2 if c < self.grid_size // 2 else 1  # Wrong zone
             self.objects[pos] = obj_type
+            self.object_ids[pos] = self.object_id_counter
+            self.object_id_counter += 1
 
         # Reset shaping
         if self.use_shaping:
@@ -105,6 +126,7 @@ class ZoningEnv(gym.Env):
         elif action == 4:
             if self.carried_object == -1 and self.agent_pos in self.objects:
                 self.carried_object = self.objects.pop(self.agent_pos)
+                self.carried_object_id = self.object_ids.pop(self.agent_pos)
             else:
                 reward += self.rewards.INVALID_ACTION
 
@@ -112,7 +134,21 @@ class ZoningEnv(gym.Env):
         elif action == 5:
             if self.carried_object != -1 and self.agent_pos not in self.objects:
                 self.objects[self.agent_pos] = self.carried_object
+                self.object_ids[self.agent_pos] = self.carried_object_id
+
+                # Check if object is placed in correct zone for the first time
+                if (
+                    self.is_correct_zone(self.agent_pos, self.carried_object)
+                    and self.carried_object_id not in self.correctly_placed_objects
+                ):
+                    reward += self.rewards.CORRECT_PLACEMENT
+                    self.correctly_placed_objects.add(self.carried_object_id)
+                    print(
+                        f"🎯 CORRECT PLACEMENT! Object {self.carried_object_id} placed correctly for first time. Reward: +{self.rewards.CORRECT_PLACEMENT}"
+                    )
+
                 self.carried_object = -1
+                self.carried_object_id = -1
             else:
                 reward += self.rewards.INVALID_ACTION
         else:

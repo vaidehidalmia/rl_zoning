@@ -4,7 +4,7 @@ from stable_baselines3.common.env_util import make_vec_env
 from stable_baselines3.common.callbacks import EvalCallback
 
 from environment import ZoningEnv
-from config import GRID_SIZE, NUM_OBJECTS, MODEL_PATH
+from config import GRID_SIZE, NUM_OBJECTS, MAX_STEPS, MODEL_PATH
 
 # Ensure model path exists
 os.makedirs(os.path.dirname(MODEL_PATH), exist_ok=True)
@@ -12,7 +12,7 @@ os.makedirs(os.path.dirname(MODEL_PATH), exist_ok=True)
 
 # Create environment
 def make_env():
-    return ZoningEnv(grid_size=GRID_SIZE, num_objects=NUM_OBJECTS)
+    return ZoningEnv(grid_size=GRID_SIZE, num_objects=NUM_OBJECTS, max_steps=MAX_STEPS)
 
 
 env = make_vec_env(make_env, n_envs=4)
@@ -34,6 +34,7 @@ model = PPO(
     vf_coef=0.5,
     max_grad_norm=0.5,
     policy_kwargs=dict(net_arch=[64, 64]),
+    device="cpu",
 )
 
 # Create evaluation environment
@@ -52,26 +53,3 @@ model.learn(total_timesteps=200_000, callback=eval_callback)
 model.save(MODEL_PATH)
 
 print(f"\n✅ Model saved to: {MODEL_PATH}")
-
-# Quick test
-print("\n🧪 Quick performance test...")
-successes = 0
-
-for episode in range(10):
-    obs = eval_env.reset()
-    for step in range(100):
-        action, _ = model.predict(obs, deterministic=False)
-        obs, reward, done, info = eval_env.step(action)
-        if done.any():
-            if reward[0] > 50:  # Task completion gives +100, so >50 means success
-                successes += 1
-                print(
-                    f"Episode {episode + 1}: ✅ SUCCESS in {step + 1} steps (reward: {reward[0]:.1f})"
-                )
-            else:
-                print(f"Episode {episode + 1}: ❌ TIMEOUT (reward: {reward[0]:.1f})")
-            break
-    else:
-        print(f"Episode {episode + 1}: ❌ NO TERMINATION")
-
-print(f"\n📊 Quick Test Results: {successes}/10 episodes successful")

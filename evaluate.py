@@ -1,13 +1,15 @@
 from stable_baselines3 import PPO
 from environment import ZoningEnv
-from config import GRID_SIZE, NUM_OBJECTS, MODEL_PATH
+from config import GRID_SIZE, NUM_OBJECTS, MAX_STEPS, MODEL_PATH
 
 # Load trained model
 print(f"📦 Loading model from: {MODEL_PATH}")
-model = PPO.load(MODEL_PATH)
+model = PPO.load(MODEL_PATH, device="cpu")
 
 # Create environment
-env = ZoningEnv(grid_size=GRID_SIZE, num_objects=NUM_OBJECTS, render_mode=None)
+env = ZoningEnv(
+    grid_size=GRID_SIZE, num_objects=NUM_OBJECTS, max_steps=MAX_STEPS, render_mode=None
+)
 
 print(
     f"\n🎮 Evaluating agent on {GRID_SIZE}x{GRID_SIZE} grid with {NUM_OBJECTS} object(s)"
@@ -26,7 +28,7 @@ for episode in range(total_episodes):
     obs, _ = env.reset()
     total_reward = 0
 
-    for step in range(400):  # Max 200 steps per episode
+    for step in range(MAX_STEPS):
         action, _ = model.predict(obs, deterministic=False)
         obs, reward, terminated, truncated, _ = env.step(action)
         total_reward += reward
@@ -55,17 +57,6 @@ print(
 print(f"Average Steps:    {sum(episode_lengths) / len(episode_lengths):.1f}")
 print(f"Average Reward:   {sum(episode_rewards) / len(episode_rewards):.1f}")
 
-if successful_episodes > 0:
-    successful_lengths = [
-        length for i, length in enumerate(episode_lengths) if episode_rewards[i] > 50
-    ]  # Successful episodes
-    if successful_lengths:
-        print(
-            f"Avg Steps (Success): {sum(successful_lengths) / len(successful_lengths):.1f}"
-        )
-
-print(f"Best Episode:     {min(episode_lengths)} steps")
-print(f"Worst Episode:    {max(episode_lengths)} steps")
 
 # Performance classification
 success_rate = successful_episodes / total_episodes
@@ -89,7 +80,7 @@ actions = []
 action_names = {0: "Up", 1: "Down", 2: "Left", 3: "Right", 4: "Pickup", 5: "Drop"}
 
 for step in range(10):
-    action, _ = model.predict(obs, deterministic=False)
+    action, _ = model.predict(obs, deterministic=True)
     actions.append(int(action))
     obs, reward, terminated, truncated, _ = env.step(action)
 
