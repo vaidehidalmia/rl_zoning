@@ -68,8 +68,8 @@ else:
 # CURRICULUM_GRID_SIZES = [4, 5, 6, 7, 8, 9, 10, 12]
 # CURRICULUM_MAX_OBJECTS = {4: 3, 5: 4, 6: 5, 7: 6, 8: 7, 9: 8, 10: 9, 12: 10}
 
-CURRICULUM_GRID_SIZES = [4]
-CURRICULUM_MAX_OBJECTS = {4: 1}
+CURRICULUM_GRID_SIZES = [4, 5]
+CURRICULUM_MAX_OBJECTS = {4: 2, 5: 2}
 
 # =============================================================================
 # QUICK CONFIGURATION PRESETS

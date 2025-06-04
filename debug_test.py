@@ -1,160 +1,182 @@
-"""
-Debug why 8x8 fails when 6x6 works
-
-Let's see exactly what the agent is doing wrong on large grids
-"""
-
-from stable_baselines3 import PPO
-from environment import ZoningEnv
-import numpy as np
+# Final fix for the curriculum - proper entropy coefficient
 
 
-def debug_agent_behavior(grid_size, model_path, episodes=3):
-    """Detailed analysis of agent behavior"""
-    print(f"\n🔍 DEBUGGING {grid_size}x{grid_size} AGENT BEHAVIOR")
-    print("=" * 60)
+def get_fixed_ppo_params(grid_size, num_objects):
+    """FINAL FIXED PPO hyperparameters - higher entropy to prevent loops"""
+    complexity = grid_size * grid_size * num_objects
 
-    try:
-        model = PPO.load(model_path)
-        print(f"✅ Loaded model: {model_path}")
-    except:
-        print(f"❌ Could not load {model_path}")
-        return
-
-    action_names = {0: "Up", 1: "Down", 2: "Left", 3: "Right", 4: "Pickup", 5: "Drop"}
-
-    for episode in range(episodes):
-        print(f"\n{'=' * 40}")
-        print(f"EPISODE {episode + 1}")
-        print(f"{'=' * 40}")
-
-        env = ZoningEnv(grid_size=grid_size, num_objects=1)
-        env.max_steps = 400  # Generous time limit
-
-        obs, _ = env.reset()
-        print(f"🎮 Initial state:")
-        print(f"   Agent at: {env.agent_pos}")
-        print(f"   Object at: {list(env.objects.keys())[0]}")
-        print(
-            f"   Distance: {calculate_distance(env.agent_pos, list(env.objects.keys())[0])}"
-        )
-
-        # Track behavior patterns
-        visited_positions = set()
-        pickup_attempts = 0
-        action_sequence = []
-        position_history = []
-
-        for step in range(50):  # First 50 steps analysis
-            action, _ = model.predict(obs, deterministic=False)
-            action_name = action_names.get(int(action), "Unknown")
-
-            # Track patterns
-            visited_positions.add(env.agent_pos)
-            position_history.append(env.agent_pos)
-            action_sequence.append(int(action))
-
-            if action == 4:  # Pickup attempt
-                pickup_attempts += 1
-
-            obs, reward, terminated, truncated, _ = env.step(action)
-
-            if step < 10 or step % 10 == 0:  # Show first 10 steps, then every 10th
-                print(
-                    f"Step {step + 1:2d}: {action_name:6s} → {env.agent_pos} → Carrying: {env.carried_object}"
-                )
-
-            if terminated:
-                print(f"\n🎯 SUCCESS! Completed in {step + 1} steps")
-                break
-            elif truncated:
-                print(f"\n⏰ TIMEOUT after {step + 1} steps")
-                break
-
-        # Analyze behavior patterns
-        print(f"\n📊 BEHAVIOR ANALYSIS:")
-        print(
-            f"   Positions visited: {len(visited_positions)}/{grid_size**2} ({len(visited_positions) / (grid_size**2) * 100:.1f}%)"
-        )
-        print(f"   Pickup attempts: {pickup_attempts}")
-        print(
-            f"   Final distance to object: {calculate_distance(env.agent_pos, list(env.objects.keys())[0])}"
-        )
-
-        # Movement pattern analysis
-        if len(position_history) >= 10:
-            print(f"   Movement pattern analysis:")
-            movements = [
-                (
-                    position_history[i + 1][0] - position_history[i][0],
-                    position_history[i + 1][1] - position_history[i][1],
-                )
-                for i in range(min(10, len(position_history) - 1))
-            ]
-            unique_moves = len(set(movements))
-            print(f"     Unique movement directions in first 10: {unique_moves}/10")
-            print(
-                f"     {'Systematic' if unique_moves >= 6 else 'Repetitive'} exploration detected"
-            )
-
-        # Action distribution
-        action_counts = {
-            name: action_sequence.count(i) for i, name in action_names.items()
+    if complexity <= 16:  # Simple problems
+        return {
+            "n_steps": 2048,  # Good rollout length
+            "batch_size": 64,  # Small batch size
+            "n_epochs": 10,  # Standard epochs
+            "gamma": 0.99,  # Standard discount
+            "gae_lambda": 0.95,  # Standard GAE
+            "clip_range": 0.2,  # Standard clip range
+            "vf_coef": 0.5,  # Standard value function weight
+            "max_grad_norm": 0.5,  # Standard gradient clipping
         }
-        print(f"   Action distribution: {action_counts}")
+    else:
+        return {
+            "n_steps": 1024,
+            "batch_size": 128,
+            "n_epochs": 10,
+            "gamma": 0.99,
+            "gae_lambda": 0.95,
+            "clip_range": 0.2,
+            "vf_coef": 0.5,
+            "max_grad_norm": 0.5,
+        }
 
 
-def calculate_distance(pos1, pos2):
-    """Manhattan distance between positions"""
-    return abs(pos1[0] - pos2[0]) + abs(pos1[1] - pos2[1])
+def calculate_training_params(grid_size, num_objects):
+    """FINAL FIXED training parameters - proper entropy coefficient"""
+    complexity = grid_size * grid_size * num_objects
+
+    if complexity <= 16:  # Simple problems
+        base_timesteps = 200_000
+        learning_rate = 3e-4
+        net_arch = [64, 64]
+        ent_coef = 0.05  # INCREASED! Was 0.01, now 0.05 to prevent deterministic loops
+    elif complexity <= 50:
+        base_timesteps = 300_000
+        learning_rate = 3e-4
+        net_arch = [128, 128]
+        ent_coef = 0.03
+    else:
+        base_timesteps = 500_000
+        learning_rate = 2e-4
+        net_arch = [256, 256]
+        ent_coef = 0.02
+
+    timesteps = min(base_timesteps, 2_000_000)
+    max_steps = grid_size * grid_size * 4 + num_objects * 50
+
+    return timesteps, max_steps, learning_rate, net_arch, ent_coef
 
 
-def compare_grid_performance():
-    """Compare successful vs failing grid sizes"""
-    print("\n🎯 COMPARING SUCCESSFUL vs FAILING PERFORMANCE")
-    print("=" * 60)
+# Test the fix
+def test_entropy_fix():
+    """Test different entropy coefficients to find the sweet spot"""
+    from stable_baselines3 import PPO
+    from stable_baselines3.common.env_util import make_vec_env
+    from utils import make_env
 
-    # Test configurations: (grid_size, model_path, expected_success)
-    tests = [
-        (6, "models/grid_6x6", "Should work well"),
-        (7, "models/grid_7x7", "Moderate performance"),
-        (8, "models/grid_8x8", "Fails completely"),
-    ]
+    entropy_values = [0.01, 0.03, 0.05, 0.1]
 
-    for grid_size, model_path, expectation in tests:
-        print(f"\n{expectation}: {grid_size}x{grid_size}")
-        debug_agent_behavior(grid_size, model_path, episodes=1)
+    print("🧪 TESTING ENTROPY COEFFICIENT VALUES")
+    print("=" * 50)
 
+    results = {}
 
-def analyze_search_efficiency():
-    """Analyze how efficiently agents search different grid sizes"""
-    print("\n🔍 SEARCH EFFICIENCY ANALYSIS")
-    print("=" * 40)
+    for ent_coef in entropy_values:
+        print(f"\n🔬 Testing ent_coef = {ent_coef}")
 
-    for grid_size in [4, 6, 8]:
-        print(f"\n{grid_size}x{grid_size} Search Requirements:")
-        total_cells = grid_size**2
-        avg_distance = grid_size  # Rough average
+        # Create environment
+        def make_curriculum_env():
+            return make_env(grid_size=4, num_objects=1)
 
-        print(f"   Total cells: {total_cells}")
-        print(f"   Average distance: ~{avg_distance} steps")
-        print(f"   Worst case search: {total_cells} cells to visit")
-        print(f"   Time pressure: {400} step limit")
-        print(f"   Search efficiency needed: {total_cells / 400 * 100:.1f}% of limit")
+        env = make_vec_env(make_curriculum_env, n_envs=1)
 
-        if total_cells / 400 > 0.3:
-            print(f"   ⚠️  High search pressure - needs systematic exploration")
-        else:
-            print(f"   ✅ Manageable search space")
+        # Create model with this entropy coefficient
+        model = PPO(
+            "MlpPolicy",
+            env,
+            verbose=0,
+            learning_rate=3e-4,
+            n_steps=2048,
+            batch_size=64,
+            n_epochs=10,
+            gamma=0.99,
+            gae_lambda=0.95,
+            clip_range=0.2,
+            ent_coef=ent_coef,  # Test this value
+            vf_coef=0.5,
+            max_grad_norm=0.5,
+            policy_kwargs=dict(net_arch=[64, 64]),
+            device="cpu",
+        )
+
+        # Quick training
+        print(f"   Training for 100k steps...")
+        model.learn(total_timesteps=100_000)
+
+        # Test deterministic performance
+        successes_det = 0
+        successes_stoch = 0
+
+        for episode in range(20):
+            # Test deterministic
+            test_env = make_env(grid_size=4, num_objects=1)
+            obs, _ = test_env.reset()
+
+            for step in range(test_env.max_steps):
+                action, _ = model.predict(obs, deterministic=True)
+                obs, reward, terminated, truncated, _ = test_env.step(action)
+
+                if terminated:
+                    successes_det += 1
+                    break
+
+            # Test stochastic
+            test_env = make_env(grid_size=4, num_objects=1)
+            obs, _ = test_env.reset()
+
+            for step in range(test_env.max_steps):
+                action, _ = model.predict(obs, deterministic=False)
+                obs, reward, terminated, truncated, _ = test_env.step(action)
+
+                if terminated:
+                    successes_stoch += 1
+                    break
+
+        det_rate = successes_det / 20
+        stoch_rate = successes_stoch / 20
+
+        print(f"   Deterministic: {det_rate:.1%}")
+        print(f"   Stochastic:    {stoch_rate:.1%}")
+        print(f"   Difference:    {abs(det_rate - stoch_rate):.1%}")
+
+        results[ent_coef] = (det_rate, stoch_rate)
+
+        env.close()
+
+    # Find best entropy coefficient
+    print(f"\n🏆 ENTROPY COEFFICIENT RESULTS:")
+    print("=" * 50)
+
+    best_ent_coef = None
+    best_det_rate = 0
+
+    for ent_coef, (det_rate, stoch_rate) in results.items():
+        difference = abs(det_rate - stoch_rate)
+        quality_score = det_rate - difference * 0.5  # Penalize large differences
+
+        print(
+            f"ent_coef={ent_coef}: det={det_rate:.1%}, stoch={stoch_rate:.1%}, diff={difference:.1%}, score={quality_score:.3f}"
+        )
+
+        if (
+            det_rate > best_det_rate and difference < 0.3
+        ):  # Good deterministic performance, small difference
+            best_det_rate = det_rate
+            best_ent_coef = ent_coef
+
+    print(f"\n🎯 RECOMMENDED ent_coef: {best_ent_coef}")
+    print(f"   Achieves {best_det_rate:.1%} deterministic success")
+
+    return best_ent_coef
 
 
 if __name__ == "__main__":
-    # Run comprehensive debugging
-    compare_grid_performance()
-    analyze_search_efficiency()
+    print("🔧 FINAL CURRICULUM FIX: ENTROPY COEFFICIENT")
+    print("=" * 60)
 
-    print(f"\n💡 INSIGHTS:")
-    print("1. Check if agent is exploring systematically or randomly")
-    print("2. See if pickup attempts are concentrated or spread out")
-    print("3. Analyze if movement patterns are efficient or repetitive")
-    print("4. Compare successful (6x6) vs failed (8x8) strategies")
+    # Test to find optimal entropy coefficient
+    best_ent_coef = test_entropy_fix()
+
+    print(f"\n💾 UPDATE YOUR utils.py:")
+    print(f"In calculate_training_params(), change:")
+    print(f"   ent_coef = 0.01  # OLD")
+    print(f"   ent_coef = {best_ent_coef}  # NEW")
+    print(f"\nThis should fix the deterministic loop issue!")

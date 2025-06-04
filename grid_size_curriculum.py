@@ -22,6 +22,7 @@ from utils import (
     get_model_path,
     get_log_path,
     calculate_training_params,
+    get_fixed_ppo_params,
     load_model_safe,
     create_directories,
 )
@@ -51,7 +52,9 @@ def train_stage(stage, grid_size, num_objects):
         grid_size, num_objects
     )
 
-    print(f"📊 Complexity metrics:")
+    ppo_params = get_fixed_ppo_params(grid_size, num_objects)
+
+    print("📊 Complexity metrics:")
     print(f"   Grid: {grid_size}x{grid_size} = {grid_size * grid_size} cells")
     print(f"   Objects: {num_objects}")
     print(f"   Training steps: {timesteps:,}")
@@ -63,13 +66,20 @@ def train_stage(stage, grid_size, num_objects):
     # Create environment factory for this stage
     make_env_func = create_curriculum_env(grid_size, num_objects)
 
-    # Use more environments for larger grids
-    n_envs = min(8, max(2, 16 // grid_size))  # Scale down envs for larger grids
-    env = make_vec_env(
-        make_env_func,
-        n_envs=n_envs,
-        vec_env_cls=SubprocVecEnv,
-    )
+    # FIXED: Use single environment for simple problems
+    complexity = grid_size * grid_size * num_objects
+    if complexity <= 16:
+        # Single environment works better for simple problems
+        n_envs = 1
+        env = make_vec_env(make_env_func, n_envs=n_envs)
+    else:
+        # Multiple environments for complex problems
+        n_envs = min(8, max(2, 16 // grid_size))
+        env = make_vec_env(
+            make_env_func,
+            n_envs=n_envs,
+            vec_env_cls=SubprocVecEnv,
+        )
 
     print(
         f"🆕 Creating new model for {grid_size}x{grid_size} with {num_objects} objects"
@@ -80,13 +90,10 @@ def train_stage(stage, grid_size, num_objects):
     model = PPO(
         "MlpPolicy",
         env,
-        verbose=1,
+        verbose=0,
         learning_rate=learning_rate,
-        gamma=0.99,
-        clip_range=0.2,
-        batch_size=min(512, max(64, 2048 // grid_size)),  # Adaptive batch size
-        n_steps=max(512, 4096 // grid_size),  # Adaptive rollout length
         ent_coef=ent_coef,
+        **ppo_params,  # Use the fixed PPO params
         policy_kwargs=dict(net_arch=net_arch),
         device="cpu",
     )
