@@ -1,45 +1,82 @@
 """
-Fixed Grid Size Curriculum: 4x4 → 5x5 → 6x6 → 7x7 → 8x8
+Enhanced Grid Size Curriculum - Now using centralized config and utils!
 
-Creates separate models for each grid size (no direct transfer due to observation space)
-but benefits from curriculum progression and optimized hyperparameters
+Key improvements:
+- Uses config.py for all settings
+- Uses utils.py for common functions
+- Cleaner, more maintainable code
+- Consistent with other scripts
 """
 
+import numpy as np
 import os
+import json
 from stable_baselines3 import PPO
-from stable_baselines3.common.env_util import make_vec_env
 from stable_baselines3.common.callbacks import EvalCallback
-from environment import ZoningEnv
+from stable_baselines3.common.env_util import make_vec_env
+from stable_baselines3.common.vec_env import SubprocVecEnv
+
+from config import *
+from utils import (
+    make_env,
+    get_model_path,
+    get_log_path,
+    calculate_training_params,
+    load_model_safe,
+    create_directories,
+)
 
 
-def train_stage(stage, grid_size, timesteps, max_steps):
-    """Train one curriculum stage - creates fresh model for each grid size"""
-    print(f"\n🎓 CURRICULUM STAGE {stage}: {grid_size}x{grid_size} Grid")
-    print("=" * 60)
+def create_curriculum_env(grid_size, num_objects):
+    """Create environment for curriculum stage using utils"""
 
-    # Create environment with current grid size
-    def make_env():
-        env = ZoningEnv(grid_size=grid_size, num_objects=1)
-        env.max_steps = max_steps
+    def make_curriculum_env():
+        env = make_env(grid_size=grid_size, num_objects=num_objects)
+        # Calculate max steps for this specific grid size and object count
+        env.max_steps = grid_size * grid_size * 4 + num_objects * 50
         return env
 
-    env = make_vec_env(make_env, n_envs=4)
+    return make_curriculum_env
 
-    # Always create fresh model (observation space changes with grid size)
-    print(f"🆕 Creating new model for {grid_size}x{grid_size}")
 
-    # Adjust hyperparameters based on stage
-    if stage == 1:
-        # First stage: standard settings
-        learning_rate = 3e-4
-        ent_coef = 0.1
-        net_arch = [128, 128]
-    else:
-        # Later stages: more conservative settings
-        learning_rate = 2e-4  # Slightly lower LR
-        ent_coef = 0.05  # Less exploration
-        net_arch = [256, 256]  # Larger network for complex grids
+def train_stage(stage, grid_size, num_objects):
+    """Train one curriculum stage - creates fresh model for each grid size"""
+    print(
+        f"\n🎓 CURRICULUM STAGE {stage}: {grid_size}x{grid_size} Grid, {num_objects} Objects"
+    )
+    print("=" * 60)
 
+    # Calculate adaptive parameters using utils
+    timesteps, max_steps, learning_rate, net_arch, ent_coef = calculate_training_params(
+        grid_size, num_objects
+    )
+
+    print(f"📊 Complexity metrics:")
+    print(f"   Grid: {grid_size}x{grid_size} = {grid_size * grid_size} cells")
+    print(f"   Objects: {num_objects}")
+    print(f"   Training steps: {timesteps:,}")
+    print(f"   Episode max steps: {max_steps}")
+    print(f"   Learning rate: {learning_rate}")
+    print(f"   Network: {net_arch}")
+    print(f"   Exploration: {ent_coef}")
+
+    # Create environment factory for this stage
+    make_env_func = create_curriculum_env(grid_size, num_objects)
+
+    # Use more environments for larger grids
+    n_envs = min(8, max(2, 16 // grid_size))  # Scale down envs for larger grids
+    env = make_vec_env(
+        make_env_func,
+        n_envs=n_envs,
+        vec_env_cls=SubprocVecEnv,
+    )
+
+    print(
+        f"🆕 Creating new model for {grid_size}x{grid_size} with {num_objects} objects"
+    )
+    print(f"   Using {n_envs} parallel environments")
+
+    # Create model with adaptive parameters
     model = PPO(
         "MlpPolicy",
         env,
@@ -47,114 +84,199 @@ def train_stage(stage, grid_size, timesteps, max_steps):
         learning_rate=learning_rate,
         gamma=0.99,
         clip_range=0.2,
-        batch_size=256,
-        n_steps=2048,
+        batch_size=min(512, max(64, 2048 // grid_size)),  # Adaptive batch size
+        n_steps=max(512, 4096 // grid_size),  # Adaptive rollout length
         ent_coef=ent_coef,
         policy_kwargs=dict(net_arch=net_arch),
         device="cpu",
     )
 
+    # Setup paths using utils
+    stage_dir = get_model_path(grid_size, num_objects, stage)
+    log_dir = get_log_path(grid_size, num_objects, stage)
+
+    # Create directories
+    os.makedirs(f"{stage_dir}/best", exist_ok=True)
+    os.makedirs(log_dir, exist_ok=True)
+
     # Setup evaluation
-    eval_env = make_vec_env(make_env, n_envs=1)
+    eval_env = make_vec_env(make_env_func, n_envs=1)
+
     eval_callback = EvalCallback(
         eval_env,
-        best_model_save_path=f"models/grid_{grid_size}x{grid_size}_best",
-        log_path=f"logs/grid_{grid_size}/",
-        eval_freq=15000,
+        best_model_save_path=f"{stage_dir}/best",
+        log_path=log_dir,
+        eval_freq=max(5000, timesteps // 20),  # Evaluate 20 times during training
         deterministic=True,
         render=False,
+        n_eval_episodes=5,
     )
 
     # Train
-    print(f"🚀 Training {grid_size}x{grid_size} for {timesteps} timesteps...")
     print(
-        f"   Settings: LR={learning_rate}, Exploration={ent_coef}, Network={net_arch}"
+        f"🚀 Training {grid_size}x{grid_size} with {num_objects} objects for {timesteps:,} timesteps..."
     )
 
-    model.learn(total_timesteps=timesteps, callback=eval_callback)
-
-    # Save stage model
-    stage_path = f"models/grid_{grid_size}x{grid_size}"
-    model.save(stage_path)
-    print(f"✅ Saved model: {stage_path}")
-
-    return stage_path
-
-
-def evaluate_grid_size(model_path, grid_size, episodes=10):
-    """Quick evaluation of a model on specific grid size"""
-    from stable_baselines3 import PPO
-
     try:
-        model = PPO.load(model_path, device="cpu")
-    except:
-        print(f"❌ Could not load {model_path}")
-        return 0.0
+        model.learn(total_timesteps=timesteps, callback=eval_callback)
+
+        # Save stage model
+        stage_path = f"{stage_dir}/final"
+        model.save(stage_path)
+        print(f"✅ Saved model: {stage_path}")
+
+        env.close()
+        eval_env.close()
+
+        return stage_path
+
+    except Exception as e:
+        print(f"❌ Training failed for stage {stage}: {e}")
+        env.close()
+        eval_env.close()
+        return None
+
+
+def evaluate_grid_size(model_path, grid_size, num_objects, episodes=15):
+    """Thorough evaluation of a model on specific grid size and object count"""
+
+    # Load model safely using utils
+    model = load_model_safe(model_path)
+    if model is None:
+        print(f"   ❌ Could not load {model_path}")
+        return 0.0, 0.0, 0.0
+
+    print(f"   📈 Loaded model from {model_path}")
 
     successes = 0
+    total_rewards = []
+    episode_lengths = []
+
+    # Calculate max steps for this configuration
+    _, max_steps, _, _, _ = calculate_training_params(grid_size, num_objects)
 
     for episode in range(episodes):
-        env = ZoningEnv(grid_size=grid_size, num_objects=1)
-        env.max_steps = grid_size * grid_size * 3  # Generous time limit
+        # Create environment for this specific configuration
+        make_env_func = create_curriculum_env(grid_size, num_objects)
+        env = make_env_func()
 
         obs, _ = env.reset()
+        episode_reward = 0
 
         for step in range(env.max_steps):
-            action, _ = model.predict(obs, deterministic=False)
+            action, _ = model.predict(obs, deterministic=True)
             obs, reward, terminated, truncated, _ = env.step(action)
+            episode_reward += reward
 
             if terminated or truncated:
-                if terminated:
+                if terminated:  # Successfully completed
                     successes += 1
+                episode_lengths.append(step + 1)
                 break
+        else:
+            episode_lengths.append(max_steps)
 
-    return successes / episodes
+        total_rewards.append(episode_reward)
+
+    success_rate = successes / episodes
+    avg_reward = np.mean(total_rewards)
+    avg_length = np.mean(episode_lengths)
+
+    print(
+        f"   📊 Results: {success_rate:.1%} success, {avg_reward:.1f} avg reward, {avg_length:.1f} avg steps"
+    )
+
+    return success_rate, avg_reward, avg_length
+
+
+def create_progressive_curriculum():
+    """Create a progressive curriculum using config settings"""
+    curriculum = []
+
+    # Use curriculum settings from config
+    for grid_size in CURRICULUM_GRID_SIZES:
+        max_objects = CURRICULUM_MAX_OBJECTS[grid_size]
+
+        # Progressive object count for each grid size
+        for num_objects in range(1, max_objects + 1):
+            # Skip some intermediate steps for larger grids to keep curriculum manageable
+            if grid_size >= 8 and num_objects % 2 == 0 and num_objects < max_objects:
+                continue
+
+            curriculum.append((grid_size, num_objects))
+
+    return curriculum
 
 
 def train_grid_curriculum():
-    """Train agent across increasing grid sizes"""
+    """Train agent across increasing grid sizes and object counts"""
 
-    # Curriculum: (grid_size, timesteps, max_steps)
-    curriculum = [
-        (4, 200_000, 200),  # Master 4x4 thoroughly
-        (5, 250_000, 250),  # Learn 5x5
-        # (6, 300_000, 300),  # Learn 6x6
-        # (7, 350_000, 350),  # Learn 7x7
-        # (8, 400_000, 400),  # Master 8x8
-    ]
+    # Create directories using utils
+    create_directories()
+
+    curriculum = create_progressive_curriculum()
+
+    print(f"🎓 PROGRESSIVE CURRICULUM ({len(curriculum)} stages)")
+    print("=" * 60)
+    for i, (grid_size, num_objects) in enumerate(curriculum, 1):
+        print(f"Stage {i:2d}: {grid_size}x{grid_size} grid, {num_objects} objects")
+    print("=" * 60)
 
     results = {}
+    successful_stages = 0
 
-    for stage, (grid_size, timesteps, max_steps) in enumerate(curriculum, 1):
+    for stage, (grid_size, num_objects) in enumerate(curriculum, 1):
+        stage_key = f"{grid_size}x{grid_size}_{num_objects}obj"
+
         print(f"\n{'=' * 70}")
-        print(f"STARTING STAGE {stage}: {grid_size}x{grid_size} Grid")
+        print(f"STARTING STAGE {stage}/{len(curriculum)}: {stage_key}")
         print(f"{'=' * 70}")
 
         # Train stage
-        model_path = train_stage(stage, grid_size, timesteps, max_steps)
+        model_path = train_stage(stage, grid_size, num_objects)
+
+        if model_path is None:
+            print(f"❌ Stage {stage} failed - skipping evaluation")
+            results[stage_key] = (0.0, 0.0, 0.0)
+            continue
 
         # Evaluate stage
-        print(f"\n📊 Evaluating {grid_size}x{grid_size} performance...")
-        success_rate = evaluate_grid_size(model_path, grid_size, episodes=15)
-        results[grid_size] = success_rate
+        print(f"\n📊 Evaluating {stage_key} performance...")
+        success_rate, avg_reward, avg_length = evaluate_grid_size(
+            model_path, grid_size, num_objects, episodes=EVAL_EPISODES
+        )
+        results[stage_key] = (success_rate, avg_reward, avg_length)
 
-        if success_rate >= 0.7:
+        # Assess performance using config threshold
+        success_threshold = 0.6  # Could be moved to config if needed
+
+        if success_rate >= 0.8:
             print(f"🏆 Stage {stage} EXCELLENT! ({success_rate:.1%} success)")
-        elif success_rate >= 0.5:
+            successful_stages += 1
+        elif success_rate >= success_threshold:
             print(f"✅ Stage {stage} GOOD! ({success_rate:.1%} success)")
-        elif success_rate >= 0.3:
+            successful_stages += 1
+        elif success_rate >= 0.4:
             print(f"⚠️  Stage {stage} MODERATE ({success_rate:.1%} success)")
         else:
             print(f"❌ Stage {stage} POOR ({success_rate:.1%} success)")
-            print(
-                "   Consider: more training time, different hyperparameters, or easier curriculum"
-            )
+            print("   Consider: more training time or curriculum adjustment")
 
-    # Final summary
-    print(f"\n🏆 CURRICULUM SUMMARY")
-    print("=" * 50)
+            # Early stopping for very poor performance
+            if success_rate < 0.1 and stage > 3:
+                print(
+                    f"🛑 Very poor performance detected. Consider revising curriculum."
+                )
+                break
 
-    for grid_size, success_rate in results.items():
+    # Final comprehensive summary
+    print(f"\n🏆 CURRICULUM COMPLETION SUMMARY")
+    print("=" * 70)
+    print(f"Completed: {successful_stages}/{len(curriculum)} stages successfully")
+    print(f"Success threshold: 60%+ success rate")
+    print()
+
+    for stage_key, (success_rate, avg_reward, avg_length) in results.items():
         status = (
             "🏆"
             if success_rate >= 0.8
@@ -164,64 +286,149 @@ def train_grid_curriculum():
             if success_rate >= 0.4
             else "❌"
         )
-        print(f"{status} {grid_size}x{grid_size}: {success_rate:.1%} success rate")
+        print(
+            f"{status} {stage_key:15s}: {success_rate:5.1%} success | {avg_reward:6.1f} reward | {avg_length:5.1f} steps"
+        )
 
-    # Find best achieved size
-    successful_sizes = [size for size, rate in results.items() if rate >= 0.6]
-    if successful_sizes:
-        max_size = max(successful_sizes)
-        print(f"\n🎯 Successfully mastered up to: {max_size}x{max_size} grids!")
+    # Find the most complex successfully mastered stage
+    successful_configs = [
+        (key, rate) for key, (rate, _, _) in results.items() if rate >= 0.6
+    ]
+    if successful_configs:
+        # Extract grid sizes and object counts
+        best_complexity = 0
+        best_config = None
+
+        for config, rate in successful_configs:
+            grid_part, obj_part = config.split("_")
+            grid_size = int(grid_part.split("x")[0])
+            num_objects = int(obj_part.replace("obj", ""))
+            complexity = grid_size * grid_size * num_objects
+
+            if complexity > best_complexity:
+                best_complexity = complexity
+                best_config = config
+
+        print(f"\n🎯 Most complex mastered configuration: {best_config}")
+        print(f"   Complexity score: {best_complexity}")
     else:
-        print(f"\n⚠️  No grid size achieved 60%+ success. Consider adjusting approach.")
+        print(f"\n⚠️  No configuration achieved 60%+ success. Consider:")
+        print(f"   - Longer training times")
+        print(f"   - Different hyperparameters")
+        print(f"   - Simpler curriculum progression")
 
-    return f"models/grid_8x8"
+    return results
 
 
-def quick_test_curriculum():
-    """Quick test of a specific grid size"""
-    grid_size = 6  # Test 6x6
+def quick_test_specific_config(grid_size=None, num_objects=None, timesteps=None):
+    """Quick test of a specific configuration using config defaults"""
 
-    print(f"🧪 Quick test: {grid_size}x{grid_size} grid")
+    # Use config defaults if not specified
+    grid_size = grid_size or GRID_SIZE
+    num_objects = num_objects or NUM_OBJECTS
 
-    # Train small model
-    def make_env():
-        env = ZoningEnv(grid_size=grid_size, num_objects=1)
-        env.max_steps = grid_size * grid_size * 2
-        return env
+    print(f"🧪 Quick test: {grid_size}x{grid_size} grid with {num_objects} objects")
 
-    env = make_vec_env(make_env, n_envs=2)
+    timesteps_calc, max_steps, learning_rate, net_arch, ent_coef = (
+        calculate_training_params(grid_size, num_objects)
+    )
+
+    # Use provided timesteps or calculated
+    if timesteps is None:
+        timesteps = min(TIMESTEPS, timesteps_calc)
+
+    # Create environment factory
+    make_env_func = create_curriculum_env(grid_size, num_objects)
+    env = make_vec_env(make_env_func, n_envs=N_ENVS)
 
     model = PPO(
         "MlpPolicy",
         env,
         verbose=1,
-        learning_rate=3e-4,
+        learning_rate=learning_rate,
         n_steps=1024,
         batch_size=128,
-        ent_coef=0.1,
-        policy_kwargs=dict(net_arch=[128, 128]),
+        ent_coef=ent_coef,
+        policy_kwargs=dict(net_arch=net_arch),
         device="cpu",
     )
 
-    print(f"Training on {grid_size}x{grid_size} for 50k steps...")
-    model.learn(total_timesteps=50_000)
+    print(
+        f"Training {grid_size}x{grid_size} with {num_objects} objects for {timesteps:,} steps..."
+    )
+    model.learn(total_timesteps=timesteps)
+
+    # Quick save for evaluation
+    temp_path = f"{MODELS_DIR}/temp_test_model"
+    model.save(temp_path)
 
     # Test
-    success_rate = evaluate_grid_size("temp_model", grid_size, episodes=5)
-    print(f"Result: {success_rate:.1%} success rate")
+    success_rate, avg_reward, avg_length = evaluate_grid_size(
+        temp_path, grid_size, num_objects, episodes=10
+    )
+    print(f"Quick test result: {success_rate:.1%} success rate")
+
+    # Cleanup
+    env.close()
+    if os.path.exists(temp_path + ".zip"):
+        os.remove(temp_path + ".zip")
+
+    return success_rate
+
+
+def save_curriculum_results(results, filename="curriculum_results.json"):
+    """Save curriculum results to file"""
+    # Convert results to serializable format
+    serializable_results = {k: list(v) for k, v in results.items()}
+
+    with open(filename, "w") as f:
+        json.dump(serializable_results, f, indent=2)
+
+    print(f"📁 Results saved to {filename}")
 
 
 if __name__ == "__main__":
-    # Ensure directories exist
-    os.makedirs("models", exist_ok=True)
-    os.makedirs("logs", exist_ok=True)
+    print("🎓 ENHANCED Grid Size and Object Count Curriculum Learning")
+    print("Progressive scaling with adaptive hyperparameters")
+    print("Now using centralized config and utils!")
+    print()
 
-    print("🎓 FIXED Grid Size Curriculum Learning")
-    print("Creates separate models for each grid size")
-    print("Benefits: Progressive difficulty + optimized hyperparameters")
+    # Print current config
+    print_config()
 
-    # Run full curriculum
-    train_grid_curriculum()
+    # Choose training mode
+    mode = input(
+        "Choose mode: [1] Full curriculum, [2] Quick test, [3] Custom config: "
+    ).strip()
 
-    # Optionally run quick test instead
-    # quick_test_curriculum()
+    if mode == "2":
+        # Quick test mode using config defaults
+        quick_test_specific_config()
+
+    elif mode == "3":
+        # Custom configuration
+        try:
+            grid_size = int(
+                input(f"Grid size (4-12, default {GRID_SIZE}): ") or GRID_SIZE
+            )
+            num_objects = int(
+                input(f"Number of objects (1-10, default {NUM_OBJECTS}): ")
+                or NUM_OBJECTS
+            )
+            timesteps = int(
+                input(f"Training timesteps (50000-500000, default {TIMESTEPS}): ")
+                or TIMESTEPS
+            )
+            quick_test_specific_config(grid_size, num_objects, timesteps)
+        except ValueError:
+            print("Invalid input, running quick test with config defaults instead")
+            quick_test_specific_config()
+
+    else:
+        # Full curriculum (default)
+        results = train_grid_curriculum()
+
+        # Save results
+        save_results = input("\nSave results to file? (y/n): ").strip().lower()
+        if save_results == "y":
+            save_curriculum_results(results)

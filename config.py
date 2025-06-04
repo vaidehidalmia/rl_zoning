@@ -51,9 +51,25 @@ else:
     NET_ARCH = [512, 256]
     ENT_COEF = 0.02
 
+# if COMPLEXITY < 20:
+#     # Small problems - compact network
+#     NET_ARCH = [256, 256, 128]
+# elif COMPLEXITY < 50:
+#     # Medium problems - deeper network
+#     NET_ARCH = [512, 512, 256, 128]
+# elif COMPLEXITY < 100:
+#     # Large problems - much deeper network
+#     NET_ARCH = [1024, 512, 512, 256, 128]
+# else:
+#     # Very large problems - deep network with residual-like structure
+#     NET_ARCH = [1024, 1024, 512, 512, 256, 256, 128]
+
 # Curriculum settings (for grid_size_curriculum.py)
-CURRICULUM_GRID_SIZES = [4, 5, 6, 7, 8, 9, 10, 12]
-CURRICULUM_MAX_OBJECTS = {4: 3, 5: 4, 6: 5, 7: 6, 8: 7, 9: 8, 10: 9, 12: 10}
+# CURRICULUM_GRID_SIZES = [4, 5, 6, 7, 8, 9, 10, 12]
+# CURRICULUM_MAX_OBJECTS = {4: 3, 5: 4, 6: 5, 7: 6, 8: 7, 9: 8, 10: 9, 12: 10}
+
+CURRICULUM_GRID_SIZES = [4]
+CURRICULUM_MAX_OBJECTS = {4: 1}
 
 # =============================================================================
 # QUICK CONFIGURATION PRESETS

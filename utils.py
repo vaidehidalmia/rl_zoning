@@ -1,14 +1,15 @@
 from config import *
+from environment import (
+    ZoningEnv,
+)
 
 
-def make_env(render_mode=None):
-    """Create environment with current config settings"""
-    from environment import ZoningEnv  # Import here to avoid circular imports
-
+def make_env(render_mode=None, grid_size=None, num_objects=None, use_shaping=None):
+    """Create environment with current config settings or custom parameters"""
     return ZoningEnv(
-        grid_size=GRID_SIZE,
-        num_objects=NUM_OBJECTS,
-        use_shaping=USE_SHAPING,
+        grid_size=grid_size or GRID_SIZE,
+        num_objects=num_objects or NUM_OBJECTS,
+        use_shaping=use_shaping if use_shaping is not None else USE_SHAPING,
         render_mode=render_mode,
     )
 

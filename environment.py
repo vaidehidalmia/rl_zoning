@@ -135,7 +135,7 @@ class ZoningEnv(gym.Env):
 
         if terminated:
             reward += self.rewards.TASK_COMPLETE
-            print(f"🎯 TASK COMPLETED! Reward: +{self.rewards.TASK_COMPLETE}")
+            # print(f"🎯 TASK COMPLETED! Reward: +{self.rewards.TASK_COMPLETE}")
 
         return self.get_obs(), reward, terminated, truncated, {}
 
