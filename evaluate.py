@@ -1,98 +1,118 @@
-from stable_baselines3 import PPO
-from environment import ZoningEnv
-from config import GRID_SIZE, NUM_OBJECTS, MAX_STEPS, MODEL_PATH
+import numpy as np
+from config import *
+from utils import make_env, load_model_safe
 
-# Load trained model
-print(f"📦 Loading model from: {MODEL_PATH}")
-model = PPO.load(MODEL_PATH, device="cpu")
 
-# Create environment
-env = ZoningEnv(
-    grid_size=GRID_SIZE, num_objects=NUM_OBJECTS, max_steps=MAX_STEPS, render_mode=None
-)
+def evaluate_agent(episodes=None):
+    """Evaluate trained agent"""
 
-print(
-    f"\n🎮 Evaluating agent on {GRID_SIZE}x{GRID_SIZE} grid with {NUM_OBJECTS} object(s)"
-)
-print("=" * 60)
+    episodes = episodes or EVAL_EPISODES
 
-# Statistics tracking
-total_episodes = 20
-successful_episodes = 0
-total_steps = 0
-episode_rewards = []
-episode_lengths = []
+    # Try to load model
+    model = load_model_safe()
+    if model is None:
+        print("Make sure you've trained a model first!")
+        return
 
-# Run multiple episodes to see performance
-for episode in range(total_episodes):
-    obs, _ = env.reset()
-    total_reward = 0
+    print(f"✅ Loaded model: {MODEL_PATH}")
+    print(f"🧪 Evaluating on {GRID_SIZE}x{GRID_SIZE} grid with {NUM_OBJECTS} objects")
+    print(f"📊 Running {episodes} episodes...")
 
-    for step in range(MAX_STEPS):
-        action, _ = model.predict(obs, deterministic=False)
-        obs, reward, terminated, truncated, _ = env.step(action)
-        total_reward += reward
+    # Track results
+    successes = 0
+    total_rewards = []
+    episode_lengths = []
 
-        if terminated or truncated:
-            episode_lengths.append(step + 1)
-            episode_rewards.append(total_reward)
-            total_steps += step + 1
+    for episode in range(episodes):
+        env = make_env()
+        obs, _ = env.reset()
+        episode_reward = 0
+
+        for step in range(env.max_steps):
+            action, _ = model.predict(obs, deterministic=True)
+            obs, reward, terminated, truncated, _ = env.step(action)
+            episode_reward += reward
+
+            if terminated or truncated:
+                if terminated:
+                    successes += 1
+                    status = "✅ COMPLETED"
+                else:
+                    status = "❌ TIMEOUT"
+
+                print(
+                    f"Episode {episode + 1:2d}: {status} in {step + 1:2d} steps (reward: {episode_reward:6.1f})"
+                )
+                episode_lengths.append(step + 1)
+                break
+
+        total_rewards.append(episode_reward)
+
+    # Calculate statistics
+    success_rate = successes / episodes
+    avg_reward = np.mean(total_rewards)
+    avg_length = np.mean(episode_lengths)
+    std_length = np.std(episode_lengths)
+
+    print(f"\n📈 RESULTS:")
+    print(f"   Success Rate: {success_rate:.1%} ({successes}/{episodes})")
+    print(f"   Average Reward: {avg_reward:.1f}")
+    print(f"   Average Steps: {avg_length:.1f} ± {std_length:.1f}")
+    print(f"   Best Episode: {min(episode_lengths)} steps")
+    print(f"   Worst Episode: {max(episode_lengths)} steps")
+
+    # Performance assessment
+    if success_rate >= 0.8:
+        print("🏆 EXCELLENT performance!")
+    elif success_rate >= 0.6:
+        print("✅ GOOD performance!")
+    elif success_rate >= 0.4:
+        print("⚠️  MODERATE performance")
+    else:
+        print("❌ POOR performance - consider more training")
+
+    return success_rate, avg_reward, avg_length
+
+
+def watch_agent_play(episodes=3):
+    """Watch agent play with visual output"""
+    model = load_model_safe()
+    if model is None:
+        print("❌ No trained model found!")
+        return
+
+    for episode in range(episodes):
+        print(f"\n🎮 Episode {episode + 1}:")
+        env = make_env(render_mode="human")
+        obs, _ = env.reset()
+
+        for step in range(env.max_steps):
+            action, _ = model.predict(obs, deterministic=True)
+            obs, reward, terminated, truncated, _ = env.step(action)
+
+            # Simple text visualization
+            print(f"Step {step + 1}: Action={action}, Reward={reward:.1f}")
 
             if terminated:
-                successful_episodes += 1
-                print(
-                    f"Episode {episode + 1:2d}: ✅ COMPLETED in {step + 1:3d} steps (reward: {total_reward:6.1f})"
-                )
-            else:
-                print(
-                    f"Episode {episode + 1:2d}: ❌ TIMEOUT  in {step + 1:3d} steps (reward: {total_reward:6.1f})"
-                )
-            break
-
-print("\n" + "=" * 60)
-print("📊 EVALUATION SUMMARY:")
-print(
-    f"Success Rate:     {successful_episodes}/{total_episodes} ({100 * successful_episodes / total_episodes:.1f}%)"
-)
-print(f"Average Steps:    {sum(episode_lengths) / len(episode_lengths):.1f}")
-print(f"Average Reward:   {sum(episode_rewards) / len(episode_rewards):.1f}")
+                print(f"✅ Completed in {step + 1} steps!")
+                break
+            elif truncated:
+                print(f"❌ Timeout after {step + 1} steps")
+                break
 
 
-# Performance classification
-success_rate = successful_episodes / total_episodes
-if success_rate >= 0.9:
-    print("\n🏆 OUTSTANDING PERFORMANCE!")
-elif success_rate >= 0.7:
-    print("\n✅ EXCELLENT PERFORMANCE!")
-elif success_rate >= 0.5:
-    print("\n👍 GOOD PERFORMANCE!")
-elif success_rate >= 0.3:
-    print("\n⚠️  MODERATE PERFORMANCE - Consider more training")
-else:
-    print("\n❌ POOR PERFORMANCE - Needs significant improvement")
+if __name__ == "__main__":
+    print("🧪 Agent Evaluation")
+    print("=" * 30)
+    print_config()
 
-# Quick behavior check - first few actions
-print(f"\n🔬 BEHAVIOR CHECK (First episode, first 10 actions):")
-obs, _ = env.reset()
-print(f"Initial: Agent at {env.agent_pos}, Objects at {list(env.objects.keys())}")
+    choice = input("Choose: [1] Evaluate, [2] Watch play, [3] Both: ").strip()
 
-actions = []
-action_names = {0: "Up", 1: "Down", 2: "Left", 3: "Right", 4: "Pickup", 5: "Drop"}
-
-for step in range(10):
-    action, _ = model.predict(obs, deterministic=True)
-    actions.append(int(action))
-    obs, reward, terminated, truncated, _ = env.step(action)
-
-    action_name = action_names.get(int(action), "?")
-
-    print(
-        f"Step {step + 1}: {action_name} → Agent: {env.agent_pos}, Carrying: {env.carried_object}"
-    )
-
-    if terminated or truncated:
-        print(f"Episode ended early at step {step + 1}")
-        break
-
-print(f"\n🎯 Agent behavior looks {'GOOD' if len(set(actions)) > 2 else 'REPETITIVE'}")
-print("✅ Evaluation completed!")
+    if choice == "1":
+        evaluate_agent()
+    elif choice == "2":
+        watch_agent_play()
+    else:  # Default to both
+        evaluate_agent()
+        print("\n" + "=" * 30)
+        watch_agent_play(episodes=1)

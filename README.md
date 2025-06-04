@@ -21,18 +21,7 @@ The agent operates on a 6x6 grid and must:
 After running video_recorder.py, the gifs are saved in /recordings
 
 
-# Specific to this version notes
-I ran grid_size_curriculum.py to train the model. Went from 4x4 -> 5x5 -> 6x6 -> 7x7 -> 8x8 -> 9x9 -> 10x10, 2 zones, 1 object in an incorrect zone. Reward for task completion and potential shaping to move towards object/zone.
+## Specific to this version notes
+Improved code for environment, train, evaluate, video_recorder. Now uses config and utils.
 
-🏆 CURRICULUM SUMMARY
-==================================================
-🏆 4x4: 100.0% success rate
-🏆 5x5: 100.0% success rate
-🏆 6x6: 93.3% success rate
-🏆 7x7: 100.0% success rate
-❌ 8x8: 33.3% success rate
-🏆 9x9: 93.3% success rate
-⚠️ 10x10: 46.7% success rate
-
-The agent is able to optimize for larger grids than it was without potential shaping but still starts to fail after a bit. 
 
