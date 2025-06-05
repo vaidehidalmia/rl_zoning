@@ -38,94 +38,51 @@ def get_log_path(grid_size=None, num_objects=None, stage=None):
         return f"{LOG_PATH}/"
 
 
-# def calculate_training_params(grid_size, num_objects):
-#     """Calculate training parameters for curriculum learning"""
-#     complexity = grid_size * grid_size * num_objects
-
-#     # Scale timesteps
-#     base_timesteps = 150_000
-#     timesteps = int(base_timesteps * (1 + complexity / 50))
-#     timesteps = min(timesteps, 2_000_000)
-
-#     # Scale max steps
-#     max_steps = grid_size * grid_size * 4 + num_objects * 50
-
-#     # Adaptive learning rate
-#     if complexity < 30:
-#         learning_rate = 3e-4
-#     elif complexity < 80:
-#         learning_rate = 2e-4
-#     else:
-#         learning_rate = 1e-4
-
-#     # Adaptive network
-#     if complexity < 50:
-#         net_arch = [128, 128]
-#     elif complexity < 100:
-#         net_arch = [256, 256]
-#     else:
-#         net_arch = [512, 256]
-
-#     # Adaptive exploration
-#     if complexity < 30:
-#         ent_coef = 0.1
-#     elif complexity < 80:
-#         ent_coef = 0.05
-#     else:
-#         ent_coef = 0.02
-
-#     return timesteps, max_steps, learning_rate, net_arch, ent_coef
-
-
-def calculate_training_params(grid_size, num_objects):
-    """Calculate training parameters for curriculum learning - FIXED VERSION"""
+def calculate_training_params_transfer(grid_size, num_objects, has_previous=False):
+    """Training params with transfer learning adjustments"""
     complexity = grid_size * grid_size * num_objects
 
-    # Scale timesteps - KEY FIX: More training time for simple problems
-    if complexity <= 16:  # Simple problems like 4x4 with 1-4 objects
-        base_timesteps = 200_000  # INCREASED from 150_000
-        learning_rate = 3e-4  # Keep standard rate
-        net_arch = [64, 64]  # Small network
-        ent_coef = 0.05  # Low exploration
-    elif complexity <= 50:  # Medium problems
-        base_timesteps = 300_000
-        learning_rate = 3e-4
-        net_arch = [128, 128]
-        ent_coef = 0.05
-    else:  # Complex problems
-        base_timesteps = 500_000
-        learning_rate = 2e-4
-        net_arch = [256, 256]
-        ent_coef = 0.05
+    # Base parameters
+    if num_objects == 1:
+        if complexity <= 25:
+            base_timesteps = 200_000
+            learning_rate = 3e-4
+            net_arch = [64, 64]
+            ent_coef = 0.05
+        else:
+            base_timesteps = 300_000
+            learning_rate = 3e-4
+            net_arch = [128, 128]
+            ent_coef = 0.05
+    else:
+        # Multi-object with transfer learning needs less training
+        if complexity <= 32:  # 4x4 with 2 objects
+            base_timesteps = 600_000 if has_previous else 800_000  # Less with transfer!
+            learning_rate = 2e-4
+            net_arch = [128, 128]
+            ent_coef = 0.08
+        else:  # 5x5 with 2+ objects
+            base_timesteps = (
+                800_000 if has_previous else 1_200_000
+            )  # Less with transfer!
+            learning_rate = 1e-4
+            net_arch = [256, 256]
+            ent_coef = 0.1
 
     timesteps = min(base_timesteps, 2_000_000)
-
-    # Scale max steps
     max_steps = grid_size * grid_size * 4 + num_objects * 50
 
     return timesteps, max_steps, learning_rate, net_arch, ent_coef
 
 
-def get_fixed_ppo_params(grid_size, num_objects):
-    """Get the winning PPO hyperparameters that achieve 95% success"""
+def get_fixed_ppo_params_transfer(grid_size, num_objects):
+    """PPO params optimized for transfer learning"""
     complexity = grid_size * grid_size * num_objects
 
-    if complexity <= 16:  # Simple problems - these are the WINNING params!
+    if num_objects == 1:
         return {
-            "n_steps": 2048,  # Good rollout length
-            "batch_size": 64,  # CRITICAL: Small batch size
-            "n_epochs": 10,  # Standard epochs work fine
-            "gamma": 0.99,  # Standard discount
-            "gae_lambda": 0.95,  # Standard GAE
-            "clip_range": 0.2,  # Standard clip range
-            "vf_coef": 0.5,  # Standard value function weight
-            "max_grad_norm": 0.5,  # Standard gradient clipping
-        }
-    elif complexity <= 50:
-        # Scale up slightly for medium problems
-        return {
-            "n_steps": 1024,
-            "batch_size": 128,
+            "n_steps": 2048,
+            "batch_size": 64,
             "n_epochs": 10,
             "gamma": 0.99,
             "gae_lambda": 0.95,
@@ -134,17 +91,29 @@ def get_fixed_ppo_params(grid_size, num_objects):
             "max_grad_norm": 0.5,
         }
     else:
-        # Scale up more for complex problems
-        return {
-            "n_steps": 512,
-            "batch_size": 256,
-            "n_epochs": 10,
-            "gamma": 0.99,
-            "gae_lambda": 0.95,
-            "clip_range": 0.2,
-            "vf_coef": 0.5,
-            "max_grad_norm": 0.5,
-        }
+        # Multi-object params
+        if complexity <= 32:
+            return {
+                "n_steps": 4096,
+                "batch_size": 128,
+                "n_epochs": 15,
+                "gamma": 0.995,
+                "gae_lambda": 0.98,
+                "clip_range": 0.1,  # Smaller clip for fine-tuning
+                "vf_coef": 1.0,
+                "max_grad_norm": 0.5,
+            }
+        else:
+            return {
+                "n_steps": 4096,
+                "batch_size": 256,
+                "n_epochs": 20,
+                "gamma": 0.995,
+                "gae_lambda": 0.98,
+                "clip_range": 0.1,
+                "vf_coef": 1.0,
+                "max_grad_norm": 0.5,
+            }
 
 
 def load_model_safe(model_path=None):
