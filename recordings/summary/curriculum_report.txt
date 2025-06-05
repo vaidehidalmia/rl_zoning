@@ -1,0 +1,35 @@
+🎓 CURRICULUM PERFORMANCE REPORT
+==================================================
+
+🏆 Stage 1: 4x4_1obj
+   Success Rate: 95.0%
+   Avg Reward: 90.3
+   Avg Steps: 13.7
+   Model: best
+
+🏆 Stage 2: 4x4_2obj
+   Success Rate: 85.0%
+   Avg Reward: 67.3
+   Avg Steps: 36.6
+   Model: best
+
+🏆 Stage 3: 5x5_1obj
+   Success Rate: 90.0%
+   Avg Reward: 84.1
+   Avg Steps: 23.1
+   Model: best
+
+❌ Stage 4: 5x5_2obj
+   Success Rate: 0.0%
+   Avg Reward: -16.2
+   Avg Steps: 200.0
+   Model: best
+
+📊 OVERALL CURRICULUM PERFORMANCE
+----------------------------------------
+Average Success Rate: 67.5%
+Excellent Stages (≥80%): 3/4
+Good Stages (≥60%): 0/4
+
+🎯 CURRICULUM INSIGHTS:
+✅ Curriculum is working well!

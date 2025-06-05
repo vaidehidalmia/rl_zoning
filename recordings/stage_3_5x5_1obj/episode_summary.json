@@ -1,0 +1,45 @@
+{
+  "model_info": {
+    "stage": 3,
+    "grid_size": 5,
+    "num_objects": 1,
+    "model_path": "models/stage_3_grid_5x5_obj_1/best/best_model",
+    "model_type": "best",
+    "stage_key": "5x5_1obj"
+  },
+  "success_rate": 1.0,
+  "rendering_success_rate": 1.0,
+  "episodes": [
+    {
+      "episode": 1,
+      "outcome": "success",
+      "reward": 102.3,
+      "steps": 8,
+      "success": true,
+      "frames_collected": 10
+    },
+    {
+      "episode": 2,
+      "outcome": "success",
+      "reward": 106.0,
+      "steps": 13,
+      "success": true,
+      "frames_collected": 15
+    },
+    {
+      "episode": 3,
+      "outcome": "success",
+      "reward": 102.2,
+      "steps": 9,
+      "success": true,
+      "frames_collected": 11
+    }
+  ],
+  "video_settings": {
+    "format": "gif",
+    "duration": 1.0,
+    "fps": null,
+    "total_episodes": 3,
+    "rendering_failed_episodes": 0
+  }
+}
