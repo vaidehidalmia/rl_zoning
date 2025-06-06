@@ -13,26 +13,26 @@
     {
       "episode": 1,
       "outcome": "success",
-      "reward": 101.4,
+      "reward": 102.5,
+      "steps": 6,
+      "success": true,
+      "frames_collected": 8
+    },
+    {
+      "episode": 2,
+      "outcome": "success",
+      "reward": 103.4,
       "steps": 7,
       "success": true,
       "frames_collected": 9
     },
     {
-      "episode": 2,
-      "outcome": "success",
-      "reward": 104.3,
-      "steps": 8,
-      "success": true,
-      "frames_collected": 10
-    },
-    {
       "episode": 3,
       "outcome": "success",
-      "reward": 103.2,
-      "steps": 9,
+      "reward": 102.4,
+      "steps": 7,
       "success": true,
-      "frames_collected": 11
+      "frames_collected": 9
     }
   ],
   "video_settings": {

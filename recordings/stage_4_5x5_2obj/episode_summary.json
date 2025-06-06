@@ -7,32 +7,32 @@
     "model_type": "best",
     "stage_key": "5x5_2obj"
   },
-  "success_rate": 0.0,
+  "success_rate": 1.0,
   "rendering_success_rate": 1.0,
   "episodes": [
     {
       "episode": 1,
-      "outcome": "timeout",
-      "reward": -15.0,
-      "steps": 200,
-      "success": false,
-      "frames_collected": 202
+      "outcome": "success",
+      "reward": 101.5,
+      "steps": 19,
+      "success": true,
+      "frames_collected": 21
     },
     {
       "episode": 2,
-      "outcome": "timeout",
-      "reward": -17.0,
-      "steps": 200,
-      "success": false,
-      "frames_collected": 202
+      "outcome": "success",
+      "reward": 100.9,
+      "steps": 13,
+      "success": true,
+      "frames_collected": 15
     },
     {
       "episode": 3,
-      "outcome": "timeout",
-      "reward": -17.0,
-      "steps": 200,
-      "success": false,
-      "frames_collected": 202
+      "outcome": "success",
+      "reward": 100.4,
+      "steps": 20,
+      "success": true,
+      "frames_collected": 22
     }
   ],
   "video_settings": {

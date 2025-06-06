@@ -13,23 +13,23 @@
     {
       "episode": 1,
       "outcome": "success",
-      "reward": 102.3,
-      "steps": 8,
+      "reward": 100.5,
+      "steps": 6,
       "success": true,
-      "frames_collected": 10
+      "frames_collected": 8
     },
     {
       "episode": 2,
       "outcome": "success",
-      "reward": 106.0,
-      "steps": 13,
+      "reward": 101.4,
+      "steps": 7,
       "success": true,
-      "frames_collected": 15
+      "frames_collected": 9
     },
     {
       "episode": 3,
       "outcome": "success",
-      "reward": 102.2,
+      "reward": 101.3,
       "steps": 9,
       "success": true,
       "frames_collected": 11

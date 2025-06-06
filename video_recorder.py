@@ -1,392 +1,509 @@
-import os
+# Fixed Video Recorder - Compatible with modern matplotlib
+
 import numpy as np
+import os
+import json
 import imageio
+from stable_baselines3 import PPO
+import glob
+
 from config import *
-from utils import make_env, load_model_safe, create_directories
-
-# Simple matplotlib-based renderer
-import matplotlib
-
-matplotlib.use("Agg")
-import matplotlib.pyplot as plt
-import matplotlib.patches as patches
+from utils import make_env, load_model_safe
 
 
-class SimpleRenderer:
-    """Simple renderer for video recording"""
+def find_trained_models():
+    """Find all trained models from the curriculum"""
+    print("🔍 FINDING TRAINED MODELS")
+    print("=" * 60)
 
-    def __init__(self, grid_size):
-        self.grid_size = grid_size
+    trained_models = []
 
-    def render(self, obs):
-        """Create visualization from observation"""
-        fig, ax = plt.subplots(figsize=(6, 6))
-        ax.set_xlim(-0.5, self.grid_size - 0.5)
-        ax.set_ylim(-0.5, self.grid_size - 0.5)
-        ax.set_aspect("equal")
-        ax.invert_yaxis()
-        ax.grid(True, alpha=0.3)
-        ax.set_title(
-            f"Agent Performance ({self.grid_size}x{self.grid_size})", fontweight="bold"
-        )
+    # Look for stage models
+    stage_pattern = f"{MODELS_DIR}/stage_*"
+    stage_dirs = glob.glob(stage_pattern)
 
-        # Draw zones
-        # Red zone (left)
-        red_zone = patches.Rectangle(
-            (-0.5, -0.5),
-            self.grid_size // 2,
-            self.grid_size,
-            facecolor="red",
-            alpha=0.2,
-            edgecolor="red",
-            linewidth=2,
-        )
-        ax.add_patch(red_zone)
+    for stage_dir in sorted(stage_dirs):
+        # Extract stage info from directory name
+        dir_name = os.path.basename(stage_dir)
+        # Example: stage_1_grid_4x4_obj_1
 
-        # Blue zone (right)
-        blue_zone = patches.Rectangle(
-            (self.grid_size // 2 - 0.5, -0.5),
-            self.grid_size // 2,
-            self.grid_size,
-            facecolor="blue",
-            alpha=0.2,
-            edgecolor="blue",
-            linewidth=2,
-        )
-        ax.add_patch(blue_zone)
-
-        # Find agent and objects from observation
-        agent_pos = None
-        carried_obj = -1
-
-        for r in range(self.grid_size):
-            for c in range(self.grid_size):
-                # Objects (channel 0)
-                obj_type = obs[r, c, 0]
-                if obj_type > 0:
-                    color = "red" if obj_type == 1 else "blue"
-                    obj_rect = patches.Rectangle(
-                        (c - 0.3, r - 0.3),
-                        0.6,
-                        0.6,
-                        facecolor=color,
-                        edgecolor="black",
-                        linewidth=2,
-                        alpha=0.8,
-                    )
-                    ax.add_patch(obj_rect)
-                    ax.text(
-                        c,
-                        r,
-                        str(obj_type),
-                        ha="center",
-                        va="center",
-                        fontsize=12,
-                        fontweight="bold",
-                        color="white",
-                    )
-
-                # Agent (channel 2)
-                agent_indicator = obs[r, c, 2]
-                if agent_indicator > 0:
-                    agent_pos = (r, c)
-                    if agent_indicator > 10:
-                        carried_obj = agent_indicator - 10
-
-        # Draw agent
-        if agent_pos:
-            r, c = agent_pos
-            agent_circle = patches.Circle(
-                (c, r), 0.25, facecolor="yellow", edgecolor="black", linewidth=3
-            )
-            ax.add_patch(agent_circle)
-            ax.text(c, r, "A", ha="center", va="center", fontsize=12, fontweight="bold")
-
-            if carried_obj > 0:
-                ax.text(
-                    c,
-                    r + 0.4,
-                    f"Carrying: {carried_obj}",
-                    ha="center",
-                    va="center",
-                    fontsize=8,
-                    fontweight="bold",
-                )
-
-        # Convert to array - use modern matplotlib API
-        fig.canvas.draw()
-
-        # Try multiple methods for cross-platform compatibility
         try:
-            # Method 1: Modern buffer_rgba approach
-            buf = np.asarray(fig.canvas.buffer_rgba())
-            height, width, _ = buf.shape
-            buf = buf[:, :, :3]  # Convert RGBA to RGB
-        except:
-            try:
-                # Method 2: Alternative buffer method
-                width, height = fig.canvas.get_width_height()
-                buf = np.frombuffer(fig.canvas.buffer_rgba(), dtype=np.uint8)
-                buf = buf.reshape(height, width, 4)[:, :, :3]  # RGBA to RGB
-            except:
-                # Method 3: Fallback using PIL
-                import io
-                from PIL import Image
+            parts = dir_name.split("_")
+            stage_num = int(parts[1])
 
-                buf_io = io.BytesIO()
-                fig.savefig(
-                    buf_io,
-                    format="png",
-                    bbox_inches="tight",
-                    facecolor="white",
-                    edgecolor="none",
-                    dpi=100,
-                )
-                buf_io.seek(0)
-                img = Image.open(buf_io)
-                buf = np.array(img)
-                if buf.shape[2] == 4:  # RGBA to RGB
-                    buf = buf[:, :, :3]
+            # Parse grid size correctly - handle "4x4" format
+            grid_part = parts[3]  # Should be "4x4"
+            if "x" in grid_part:
+                grid_size = int(grid_part.split("x")[0])
+            else:
+                continue
 
-        plt.close(fig)
-        return buf
+            num_objects = int(parts[5])
+
+            # Look for best model first, then final model
+            best_model_path = f"{stage_dir}/best/best_model"
+            final_model_path = f"{stage_dir}/final"
+
+            if os.path.exists(best_model_path + ".zip"):
+                model_path = best_model_path
+                model_type = "best"
+            elif os.path.exists(final_model_path + ".zip"):
+                model_path = final_model_path
+                model_type = "final"
+            else:
+                print(f"   ⚠️  No model found in {stage_dir}")
+                continue
+
+            trained_models.append(
+                {
+                    "stage": stage_num,
+                    "grid_size": grid_size,
+                    "num_objects": num_objects,
+                    "model_path": model_path,
+                    "model_type": model_type,
+                    "stage_key": f"{grid_size}x{grid_size}_{num_objects}obj",
+                }
+            )
+
+            print(
+                f"   ✅ Stage {stage_num}: {grid_size}x{grid_size}, {num_objects} obj ({model_type} model)"
+            )
+
+        except (ValueError, IndexError) as e:
+            print(f"   ❌ Could not parse {dir_name}: {e}")
+
+    print(f"\n📊 Found {len(trained_models)} trained models")
+    return sorted(trained_models, key=lambda x: (x["grid_size"], x["num_objects"]))
 
 
-def create_agent_video():
-    """Create video of agent performance using config settings"""
+def test_rendering_compatibility():
+    """Test if rendering works before recording videos"""
+    print("🧪 Testing rendering compatibility...")
 
-    # Load model using util function
-    model = load_model_safe()
-    if model is None:
-        return
-
-    print(f"✅ Loaded model: {MODEL_PATH}")
-
-    # Create output directory using util function
-    create_directories()
-
-    # Create renderer
-    renderer = SimpleRenderer(GRID_SIZE)
-
-    print(f"🎬 Recording {VIDEO_EPISODES} episodes...")
-
-    for episode in range(VIDEO_EPISODES):
-        print(f"Recording episode {episode + 1}...")
-
-        # Create environment using util function
-        env = make_env()
+    try:
+        # Test with smallest grid first
+        env = make_env(grid_size=4, num_objects=1, render_mode="rgb_array")
         obs, _ = env.reset()
 
-        frames = []
+        # Try to render
+        frame = env.render()
 
-        # Add initial frame
-        frame = renderer.render(env.get_obs())
-        frames.append(frame)
+        if frame is not None and isinstance(frame, np.ndarray):
+            print("✅ Rendering works!")
+            print(f"   Frame shape: {frame.shape}")
+            env.close()
+            return True
+        else:
+            print("❌ Rendering returned None or invalid data")
+            env.close()
+            return False
 
-        episode_reward = 0
-
-        for step in range(MAX_STEPS):
-            action, _ = model.predict(obs, deterministic=True)
-            obs, reward, terminated, truncated, _ = env.step(action)
-            episode_reward += reward
-
-            # Capture frame
-            frame = renderer.render(env.get_obs())
-            frames.append(frame)
-
-            if terminated or truncated:
-                status = "COMPLETED" if terminated else "TIMEOUT"
-                print(
-                    f"  Episode {episode + 1}: {status} in {step + 1} steps (reward: {episode_reward:.1f})"
-                )
-                break
-
-        # Save video
-        filename = f"{RECORDINGS_DIR}/episode_{episode + 1}.{VIDEO_FORMAT}"
-
-        if VIDEO_FORMAT.lower() == "gif":
-            imageio.mimsave(filename, frames, duration=VIDEO_DURATION, loop=0)
-        elif VIDEO_FORMAT.lower() == "mp4":
-            try:
-                imageio.mimsave(filename, frames, fps=VIDEO_FPS)
-            except Exception as e:
-                print(f"MP4 save failed: {e}, saving as GIF instead")
-                gif_filename = f"{RECORDINGS_DIR}/episode_{episode + 1}.gif"
-                imageio.mimsave(gif_filename, frames, duration=VIDEO_DURATION, loop=0)
-                filename = gif_filename
-
-        print(f"  💾 Saved: {filename}")
-
-    print(f"\n🎯 All videos saved to {RECORDINGS_DIR}/")
+    except Exception as e:
+        print(f"❌ Rendering failed: {e}")
+        print("\n💡 Possible fixes:")
+        print("1. Update matplotlib: pip install matplotlib --upgrade")
+        print("2. Check visualize/renderer.py compatibility")
+        print("3. Use headless mode: export MPLBACKEND=Agg")
+        return False
 
 
-def create_comparison_video():
-    """Create side-by-side comparison of two episodes"""
+def create_simple_text_frame(text, width=400, height=400):
+    """Create a simple colored frame with text info (fallback)"""
+    # Create a colored frame based on the text
+    if "success" in text.lower():
+        color = [0, 255, 0]  # Green
+    elif "timeout" in text.lower():
+        color = [255, 165, 0]  # Orange
+    else:
+        color = [100, 100, 100]  # Gray
 
-    model = load_model_safe()
-    if model is None:
-        print("❌ No trained model found!")
-        return
+    frame = np.full((height, width, 3), color, dtype=np.uint8)
+    return frame
 
-    create_directories()
-    renderer = SimpleRenderer(GRID_SIZE)
 
-    print("🎬 Creating comparison video...")
+def record_model_videos_safe(model_info, episodes=VIDEO_EPISODES):
+    """Record videos with error handling and fallbacks"""
+    stage = model_info["stage"]
+    grid_size = model_info["grid_size"]
+    num_objects = model_info["num_objects"]
+    model_path = model_info["model_path"]
+    model_type = model_info["model_type"]
 
-    all_frames = []
+    print(
+        f"\n🎬 Recording videos for {model_info['stage_key']} ({model_type} model)..."
+    )
 
-    # Record 2 episodes
-    for episode in range(2):
-        env = make_env()
-        obs, _ = env.reset()
-
-        frames = []
-        frame = renderer.render(env.get_obs())
-        frames.append(frame)
-
-        for step in range(50):  # Shorter for comparison
-            action, _ = model.predict(obs, deterministic=True)
-            obs, reward, terminated, truncated, _ = env.step(action)
-
-            frame = renderer.render(env.get_obs())
-            frames.append(frame)
-
-            if terminated or truncated:
-                break
-
-        all_frames.append(frames)
-
-    # Create side-by-side frames
-    if len(all_frames) == 2:
-        from PIL import Image
-
-        max_frames = max(len(all_frames[0]), len(all_frames[1]))
-        combined_frames = []
-
-        for i in range(max_frames):
-            # Get frames (repeat last if episode ended)
-            frame1 = all_frames[0][min(i, len(all_frames[0]) - 1)]
-            frame2 = all_frames[1][min(i, len(all_frames[1]) - 1)]
-
-            # Combine side by side
-            img1 = Image.fromarray(frame1)
-            img2 = Image.fromarray(frame2)
-
-            combined_width = img1.width + img2.width
-            combined_height = max(img1.height, img2.height)
-            combined_img = Image.new("RGB", (combined_width, combined_height))
-
-            combined_img.paste(img1, (0, 0))
-            combined_img.paste(img2, (img1.width, 0))
-
-            combined_frames.append(np.array(combined_img))
-
-        # Save comparison
-        filename = f"{RECORDINGS_DIR}/comparison.gif"
-        imageio.mimsave(
-            filename, combined_frames, duration=VIDEO_DURATION * 1.5, loop=0
+    # Create recordings directory
+    if isinstance(stage, int):
+        video_dir = (
+            f"{RECORDINGS_DIR}/stage_{stage}_{grid_size}x{grid_size}_{num_objects}obj"
         )
-        print(f"💾 Saved comparison: {filename}")
+    else:
+        video_dir = f"{RECORDINGS_DIR}/{stage}"
 
+    os.makedirs(video_dir, exist_ok=True)
 
-def create_best_episode_video():
-    """Record until we get a really good episode (fast completion)"""
-
-    model = load_model_safe()
+    # Load model
+    model = load_model_safe(model_path)
     if model is None:
-        print("❌ No trained model found!")
+        print(f"❌ Could not load model: {model_path}")
+        return False
+
+    print(f"📁 Saving videos to: {video_dir}")
+
+    success_count = 0
+    episode_data = []
+    rendering_failed_episodes = 0
+
+    for episode in range(episodes):
+        try:
+            # Create environment with rendering
+            env = make_env(
+                grid_size=grid_size, num_objects=num_objects, render_mode="rgb_array"
+            )
+
+            frames = []
+            obs, _ = env.reset()
+            episode_reward = 0
+            episode_steps = 0
+            episode_rendering_failed = False
+
+            # Render initial state
+            try:
+                frame = env.render()
+                if frame is not None and isinstance(frame, np.ndarray):
+                    frames.append(frame.copy())  # Make a copy to avoid reference issues
+                else:
+                    episode_rendering_failed = True
+            except Exception as e:
+                if episode == 0:  # Only warn on first episode
+                    print(f"   ⚠️  Initial rendering failed: {e}")
+                episode_rendering_failed = True
+
+            # Run episode and collect frames for EVERY step
+            for step in range(env.max_steps):
+                action, _ = model.predict(obs, deterministic=True)
+                obs, reward, terminated, truncated, _ = env.step(action)
+                episode_reward += reward
+                episode_steps += 1
+
+                # Try to record frame for this step (don't give up on rendering for the whole episode)
+                if not episode_rendering_failed:
+                    try:
+                        frame = env.render()
+                        if frame is not None and isinstance(frame, np.ndarray):
+                            frames.append(frame.copy())
+                        else:
+                            # Only mark as failed if we get None consistently
+                            episode_rendering_failed = True
+                    except Exception as e:
+                        if step == 0:  # Only warn on first step failure
+                            print(f"   ⚠️  Step rendering failed: {e}")
+                        episode_rendering_failed = True
+
+                if terminated or truncated:
+                    break
+
+            # Render final state if episode ended early
+            if (terminated or truncated) and not episode_rendering_failed:
+                try:
+                    frame = env.render()
+                    if frame is not None and isinstance(frame, np.ndarray):
+                        frames.append(frame.copy())
+                except:
+                    pass  # Don't fail the whole episode for final frame
+
+            # Determine episode outcome
+            outcome = "success" if terminated else "timeout"
+            if terminated:
+                success_count += 1
+
+            episode_info = {
+                "episode": episode + 1,
+                "outcome": outcome,
+                "reward": round(episode_reward, 1),
+                "steps": episode_steps,
+                "success": terminated,
+                "frames_collected": len(frames),
+            }
+            episode_data.append(episode_info)
+
+            # Save video or create fallback
+            filename = f"ep{episode + 1:02d}_{outcome}_r{episode_reward:.1f}_s{episode_steps:03d}"
+
+            if (
+                frames and len(frames) > 1
+            ):  # Need at least 2 frames for a meaningful video
+                # Save actual video
+                if VIDEO_FORMAT == "gif":
+                    video_path = f"{video_dir}/{filename}.gif"
+                    try:
+                        # Ensure all frames have the same shape
+                        if len(set(frame.shape for frame in frames)) == 1:
+                            imageio.mimsave(
+                                video_path, frames, duration=VIDEO_DURATION, loop=0
+                            )
+                            print(f"   ✅ {filename}.gif ({len(frames)} frames)")
+                        else:
+                            print(f"   ⚠️  Frame shape mismatch, skipping {filename}")
+                            episode_rendering_failed = True
+                    except Exception as e:
+                        print(f"   ❌ Failed to save GIF: {e}")
+                        episode_rendering_failed = True
+
+                elif VIDEO_FORMAT == "mp4":
+                    video_path = f"{video_dir}/{filename}.mp4"
+                    try:
+                        # Ensure all frames have the same shape
+                        if len(set(frame.shape for frame in frames)) == 1:
+                            imageio.mimsave(video_path, frames, fps=VIDEO_FPS)
+                            print(f"   ✅ {filename}.mp4 ({len(frames)} frames)")
+                        else:
+                            print(f"   ⚠️  Frame shape mismatch, skipping {filename}")
+                            episode_rendering_failed = True
+                    except Exception as e:
+                        print(f"   ❌ Failed to save MP4: {e}")
+                        episode_rendering_failed = True
+            else:
+                episode_rendering_failed = True
+
+            # Create fallback summary if rendering failed
+            if episode_rendering_failed:
+                rendering_failed_episodes += 1
+                if episode == 0:
+                    print(f"   📊 Creating episode summaries (rendering issues)")
+
+                # Create a simple info frame
+                fallback_frame = create_simple_text_frame(
+                    f"{outcome}: r={episode_reward:.1f}, steps={episode_steps}"
+                )
+
+                if VIDEO_FORMAT == "gif":
+                    video_path = f"{video_dir}/{filename}_summary.gif"
+                    try:
+                        # Create a simple 1-frame GIF
+                        imageio.mimsave(video_path, [fallback_frame], duration=2.0)
+                    except:
+                        pass
+
+            env.close()
+
+        except Exception as e:
+            print(f"   ❌ Episode {episode + 1} failed: {e}")
+            continue
+
+    # Save episode summary
+    success_rate = success_count / episodes
+    rendering_success_rate = (episodes - rendering_failed_episodes) / episodes
+
+    summary = {
+        "model_info": model_info,
+        "success_rate": success_rate,
+        "rendering_success_rate": rendering_success_rate,
+        "episodes": episode_data,
+        "video_settings": {
+            "format": VIDEO_FORMAT,
+            "duration": VIDEO_DURATION if VIDEO_FORMAT == "gif" else None,
+            "fps": VIDEO_FPS if VIDEO_FORMAT == "mp4" else None,
+            "total_episodes": episodes,
+            "rendering_failed_episodes": rendering_failed_episodes,
+        },
+    }
+
+    summary_path = f"{video_dir}/episode_summary.json"
+    with open(summary_path, "w") as f:
+        json.dump(summary, f, indent=2)
+
+    print(f"   📊 Success rate: {success_rate:.1%} ({success_count}/{episodes})")
+    print(
+        f"   🎬 Rendering success: {rendering_success_rate:.1%} ({episodes - rendering_failed_episodes}/{episodes})"
+    )
+    print(f"   📄 Summary saved: episode_summary.json")
+
+    return True
+
+
+def create_text_summary_report():
+    """Create a text summary of all model performances"""
+    print(f"\n📄 CREATING TEXT SUMMARY REPORT")
+    print("=" * 60)
+
+    trained_models = find_trained_models()
+    if not trained_models:
+        print("❌ No trained models found")
         return
 
-    create_directories()
-    renderer = SimpleRenderer(GRID_SIZE)
+    summary_dir = f"{RECORDINGS_DIR}/summary"
+    os.makedirs(summary_dir, exist_ok=True)
 
-    print("🎯 Recording best performance episode...")
+    report_lines = []
+    report_lines.append("🎓 CURRICULUM PERFORMANCE REPORT")
+    report_lines.append("=" * 50)
+    report_lines.append("")
 
-    best_frames = None
-    best_steps = float("inf")
-    best_reward = -float("inf")
+    total_tests = 0
+    overall_performance = []
 
-    # Try multiple episodes to find a good one
-    max_attempts = 15
-    target_steps = min(20, MAX_STEPS // 3)  # Target: complete in under 1/3 of max steps
+    for model_info in trained_models:
+        stage = model_info["stage"]
+        grid_size = model_info["grid_size"]
+        num_objects = model_info["num_objects"]
+        model_path = model_info["model_path"]
+        stage_key = model_info["stage_key"]
 
-    for attempt in range(max_attempts):
-        env = make_env()
-        obs, _ = env.reset()
+        print(f"   📊 Testing {stage_key}...")
 
-        frames = []
-        frame = renderer.render(env.get_obs())
-        frames.append(frame)
+        # Load model and test performance
+        model = load_model_safe(model_path)
+        if model is None:
+            continue
 
-        episode_reward = 0
+        success_count = 0
+        total_reward = 0
+        total_steps = 0
+        episodes = 20  # Test episodes
 
-        for step in range(MAX_STEPS):
-            action, _ = model.predict(obs, deterministic=True)
-            obs, reward, terminated, truncated, _ = env.step(action)
-            episode_reward += reward
+        for episode in range(episodes):
+            try:
+                env = make_env(grid_size=grid_size, num_objects=num_objects)
+                obs, _ = env.reset()
+                episode_reward = 0
 
-            frame = renderer.render(env.get_obs())
-            frames.append(frame)
+                for step in range(env.max_steps):
+                    action, _ = model.predict(obs, deterministic=True)
+                    obs, reward, terminated, truncated, _ = env.step(action)
+                    episode_reward += reward
 
-            if terminated or truncated:
-                if terminated and step + 1 < best_steps:
-                    # Found a better episode!
-                    best_steps = step + 1
-                    best_reward = episode_reward
-                    best_frames = frames.copy()
-                    print(
-                        f"  🏆 New best: Episode completed in {step + 1} steps (reward: {episode_reward:.1f})"
-                    )
-
-                    # If we found a really good episode, stop searching
-                    if step + 1 <= target_steps:
-                        print(f"  ✨ Excellent performance achieved! Stopping search.")
+                    if terminated or truncated:
+                        if terminated:
+                            success_count += 1
+                        total_steps += step + 1
                         break
                 else:
-                    print(
-                        f"  📊 Attempt {attempt + 1}: {step + 1} steps ({'completed' if terminated else 'timeout'})"
-                    )
-                break
+                    total_steps += env.max_steps
 
-    # Save the best episode found
-    if best_frames:
-        filename = f"{RECORDINGS_DIR}/best_episode_{best_steps}_steps.{VIDEO_FORMAT}"
+                total_reward += episode_reward
+                env.close()
 
-        if VIDEO_FORMAT.lower() == "gif":
-            imageio.mimsave(filename, best_frames, duration=VIDEO_DURATION, loop=0)
-        elif VIDEO_FORMAT.lower() == "mp4":
-            try:
-                imageio.mimsave(filename, best_frames, fps=VIDEO_FPS)
             except Exception as e:
-                print(f"MP4 save failed: {e}, saving as GIF instead")
-                gif_filename = f"{RECORDINGS_DIR}/best_episode_{best_steps}_steps.gif"
-                imageio.mimsave(
-                    gif_filename, best_frames, duration=VIDEO_DURATION, loop=0
-                )
-                filename = gif_filename
+                print(f"     ❌ Episode {episode + 1} failed: {e}")
+                continue
 
-        print(f"🏆 Saved best episode: {filename}")
-        print(f"   Performance: {best_steps} steps, {best_reward:.1f} reward")
-    else:
-        print("⚠️  No completed episodes found in {max_attempts} attempts")
+        success_rate = success_count / episodes
+        avg_reward = total_reward / episodes
+        avg_steps = total_steps / episodes
+
+        overall_performance.append(success_rate)
+        total_tests += 1
+
+        # Add to report
+        status = (
+            "🏆"
+            if success_rate >= 0.8
+            else "✅"
+            if success_rate >= 0.6
+            else "⚠️"
+            if success_rate >= 0.4
+            else "❌"
+        )
+
+        report_lines.append(f"{status} Stage {stage}: {stage_key}")
+        report_lines.append(f"   Success Rate: {success_rate:.1%}")
+        report_lines.append(f"   Avg Reward: {avg_reward:.1f}")
+        report_lines.append(f"   Avg Steps: {avg_steps:.1f}")
+        report_lines.append(f"   Model: {model_info['model_type']}")
+        report_lines.append("")
+
+    # Overall summary
+    if overall_performance:
+        overall_success = sum(overall_performance) / len(overall_performance)
+        excellent_stages = sum(1 for p in overall_performance if p >= 0.8)
+        good_stages = sum(1 for p in overall_performance if 0.6 <= p < 0.8)
+
+        report_lines.append("📊 OVERALL CURRICULUM PERFORMANCE")
+        report_lines.append("-" * 40)
+        report_lines.append(f"Average Success Rate: {overall_success:.1%}")
+        report_lines.append(
+            f"Excellent Stages (≥80%): {excellent_stages}/{total_tests}"
+        )
+        report_lines.append(f"Good Stages (≥60%): {good_stages}/{total_tests}")
+        report_lines.append("")
+        report_lines.append("🎯 CURRICULUM INSIGHTS:")
+
+        if excellent_stages >= total_tests // 2:
+            report_lines.append("✅ Curriculum is working well!")
+        elif good_stages >= total_tests // 2:
+            report_lines.append("⚠️  Curriculum shows promise but needs optimization")
+        else:
+            report_lines.append("❌ Curriculum needs significant improvement")
+
+    # Save report
+    report_path = f"{summary_dir}/curriculum_report.txt"
+    with open(report_path, "w") as f:
+        f.write("\n".join(report_lines))
+
+    print(f"✅ Report saved: {report_path}")
+
+    # Print summary to console
+    print("\n📊 QUICK SUMMARY:")
+    for line in report_lines[-10:]:  # Last 10 lines
+        print(line)
+
+
+def record_all_trained_models_safe():
+    """Record videos for all trained models with error handling"""
+    print("🎬 VIDEO RECORDER FOR TRAINED MODELS (SAFE MODE)")
+    print("=" * 60)
+
+    # Test rendering first
+    if not test_rendering_compatibility():
+        print("\n⚠️  Rendering issues detected. Creating text summaries instead.")
+        create_text_summary_report()
+        return
+
+    # Ensure recordings directory exists
+    os.makedirs(RECORDINGS_DIR, exist_ok=True)
+
+    # Find all trained models
+    trained_models = find_trained_models()
+
+    if not trained_models:
+        print("❌ No trained models found!")
+        print("   Make sure you have run the curriculum training first.")
+        return
+
+    print(f"\n🎬 Recording videos for {len(trained_models)} models...")
+    print(f"📹 Video format: {VIDEO_FORMAT}")
+    print(f"📁 Output directory: {RECORDINGS_DIR}")
+
+    successful_recordings = 0
+
+    for i, model_info in enumerate(trained_models, 1):
+        print(f"\n[{i}/{len(trained_models)}] {model_info['stage_key']}")
+
+        if record_model_videos_safe(model_info):
+            successful_recordings += 1
+
+    print(f"\n📊 RECORDING SUMMARY")
+    print("=" * 40)
+    print(
+        f"Successfully recorded: {successful_recordings}/{len(trained_models)} models"
+    )
+    print(f"Videos saved to: {RECORDINGS_DIR}/")
+
+    # Also create text summary
+    create_text_summary_report()
+
+    print(f"\n🎯 CHECK RESULTS:")
+    print(f"1. Videos: {RECORDINGS_DIR}/stage_*/")
+    print(f"2. Summaries: {RECORDINGS_DIR}/stage_*/episode_summary.json")
+    print(f"3. Report: {RECORDINGS_DIR}/summary/curriculum_report.txt")
+
+    return successful_recordings
 
 
 if __name__ == "__main__":
-    print("🎬 Agent Video Recorder")
-    print("=" * 30)
-    print_config()
+    print("🎬 FIXED VIDEO RECORDER FOR TRAINED MODELS")
+    print("=" * 60)
 
-    choice = input(
-        "Choose: [1] Record episodes, [2] Comparison video, [3] Best episode, [4] All: "
-    ).strip()
-
-    if choice == "1":
-        create_agent_video()
-    elif choice == "2":
-        create_comparison_video()
-    elif choice == "3":
-        create_best_episode_video()
-    else:  # Default to all
-        create_agent_video()
-        create_comparison_video()
-        create_best_episode_video()
+    record_all_trained_models_safe()
